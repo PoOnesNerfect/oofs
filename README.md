@@ -2,7 +2,7 @@
 
 This library is WIP.
 
-It compiles with basic attribute `#[oofs]`, and it will generate `Oof`s, but error display needs a lot more work.
+It compiles with basic attribute `#[oofs]`, and it will build try operators into `Oof`, but error display needs a lot more work.
 
 Also, attribute args need to be implemented as well as well as features.
 
