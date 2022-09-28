@@ -1,6 +1,6 @@
 [package]
 name = "oofs"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["PoOnesNerfect <jack.y.l.dev@gmail.com>"]
 description = "Auto-generate error context for your functions/methods with an attribute #[oofs]"
@@ -19,4 +19,4 @@ display_owned_release = []
 display_owned_disabled = []
 
 [dependencies]
-oofs_derive = { version = "=0.1.1", path = "../oofs_derive" }
+oofs_derive = { version = "=0.1.2", path = "../oofs_derive" }
