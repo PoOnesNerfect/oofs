@@ -8,7 +8,7 @@ documentation = "https://docs.rs/oofs/"
 repository = "https://github.com/PoOnesNerfect/oofs"
 homepage = "https://github.com/PoOnesNerfect/oofs"
 license = "MIT"
-readme = "README.md"
+readme = "../README.md"
 categories = ["rust-patterns"]
 keywords = ["error", "error-handling", "attribute"]
 
