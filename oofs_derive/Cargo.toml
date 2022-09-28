@@ -1,0 +1,24 @@
+[package]
+name = "oofs_derive"
+version = "0.1.0"
+edition = "2021"
+authors = ["PoOnesNerfect <jack.y.l.dev@gmail.com>"]
+description = "Auto-generate error context for your functions/methods with an attribute #[oofs]"
+documentation = "https://docs.rs/oofs/"
+repository = "https://github.com/PoOnesNerfect/oofs"
+homepage = "https://github.com/PoOnesNerfect/oofs"
+license = "MIT"
+readme = "README.md"
+categories = ["rust-patterns"]
+keywords = ["error", "error-handling", "attribute"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "1.0", features = ["full", "printing"] }
+quote = "1.0"
+proc-macro2 = { version = "1.0" }
+proc-macro-error = { version = "1.0" }
