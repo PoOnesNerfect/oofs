@@ -43,8 +43,11 @@ macro_rules! oof {
 }
 
 #[track_caller]
-pub fn err<T>(e: impl 'static + Send + Sync + Error) -> Result<T, Oof> {
-    Err(Oof::builder("Error encountered").with_source(e).build())
+pub fn err<T, E: From<Oof>>(e: impl 'static + Send + Sync + Error) -> Result<T, E> {
+    Err(Oof::builder("Error encountered")
+        .with_source(e)
+        .build()
+        .into())
 }
 
 pub struct Oof {
