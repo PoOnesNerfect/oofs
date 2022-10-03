@@ -19,4 +19,4 @@ display_owned_release = []
 display_owned_disabled = []
 
 [dependencies]
-oofs_derive = { version = "0.1.5", path = "../oofs_derive" }
+oofs_derive = { version = "=0.1.6", path = "../oofs_derive" }
