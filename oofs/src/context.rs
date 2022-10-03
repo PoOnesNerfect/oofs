@@ -96,8 +96,9 @@ impl Context {
         }
     }
 
-    pub fn add_method(&mut self, method: Method) {
+    pub fn with_method(mut self, method: Method) -> Self {
         self.chain.push(method);
+        self
     }
 
     pub fn returns_option(&mut self) {

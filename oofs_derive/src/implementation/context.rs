@@ -69,11 +69,10 @@ impl<'a> ToTokens for ContextInner<'a> {
 
             braced.extend(quote_spanned! {span=>
                 .with_oof_builder(|| {
-                    let mut context = Context::new(#receiver .into());
-
+                    let context = Context::new(#receiver .into())
                     #(
-                        context.add_method(#chain);
-                    )*
+                        .with_method(#chain)
+                    )* ;
 
                     OofBuilder::new(context.into())
                 })
