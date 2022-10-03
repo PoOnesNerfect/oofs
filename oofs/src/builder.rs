@@ -14,7 +14,7 @@ impl OofBuilder {
     #[track_caller]
     pub fn new(message: OofMessage) -> OofBuilder {
         Self {
-            message: message.into(),
+            message,
             source: None,
             context: None,
             location: Some(Location::caller()),
@@ -39,17 +39,6 @@ impl OofBuilder {
 }
 
 impl<T> OofExt<T> for Result<T, OofBuilder> {
-    // if message is already set, then do not overwrite it.
-    fn oof<M: Into<OofMessage>>(self, message: M) -> Result<T, OofBuilder> {
-        match self {
-            Ok(ret) => Ok(ret),
-            Err(mut builder) => {
-                builder.message = message.into();
-                Err(builder)
-            }
-        }
-    }
-
     fn tag<Tag: 'static>(self) -> Result<T, OofBuilder> {
         match self {
             Ok(ret) => Ok(ret),
@@ -132,7 +121,9 @@ impl<T> OofBuilderExt<T> for Option<T> {
         if let Some(t) = self {
             Ok(t)
         } else {
-            Err(f())
+            let mut b = f();
+            b.message.returns_option();
+            Err(b)
         }
     }
 }
@@ -154,7 +145,7 @@ mod oof_builder_tests {
     fn valid_err_fn() -> Result<(), Oof> {
         "hello world"
             .parse::<u8>()
-            .oof("parsing failed")
+            .with_oof_builder(|| OofBuilder::new("parsing failed".into()))
             .tag::<MyTag>()
             .map_err(|e| e.build())?;
 

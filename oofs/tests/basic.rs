@@ -1,4 +1,4 @@
-use oofs::{oofs, Oof};
+use oofs::*;
 
 #[oofs]
 fn main_fn() -> Result<(), Oof> {
@@ -7,7 +7,9 @@ fn main_fn() -> Result<(), Oof> {
         field1: "hello world".to_owned(),
     };
 
-    my_struct.some_method(321, "watermelon sugar")?;
+    my_struct
+        .some_method(321, "watermelon sugar")?
+        .checked_add(1)?;
 
     Ok(())
 }
@@ -37,10 +39,8 @@ fn some_fn(text: &str) -> Result<(), Oof> {
 #[test]
 fn implements_basic_error() {
     let res = main_fn();
-    
+
     assert!(res.is_err());
 
-    let err = res.unwrap_err();
-
-    println!("{err:?}");
+    println!("{:?}", res.unwrap_err());
 }

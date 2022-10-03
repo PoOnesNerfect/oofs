@@ -2,11 +2,7 @@
 
 This library is WIP.
 
-It compiles with basic attribute `#[oofs]`, and it will build try operators into `Oof`, but error display needs a lot more work.
-
-Also, attribute args need to be implemented as well as well as features.
-
-Below is a description of the finished product, and not the current state of the library.
+Attribute args need to be implemented as well as well as features.
 
 You can still check it out, play with it, and expand the macro to see how things work.
 
@@ -21,6 +17,8 @@ Stay tuned for a next minor release!
 [mit-url]: https://github.com/PoOnesNerfect/oofs/blob/main/LICENSE
 
 This library provides `#[oofs]`, an attribute that generates and injects an error context into all instances of try operator `?` in `fn` or `impl` methods.
+
+## Basic Example
 
 Below is an example from `oofs/tests/basic.rs`
 
@@ -65,26 +63,23 @@ fn some_fn(text: &str) -> Result<(), Oof> {
 In the above example, if we were to print out an error from `main_fn`, it would look something like this:
 
 ```
-$my_struct.some_method($x, $y) failed
-    at `oofs/tests/basic.rs:10:15`
+my_struct.some_method($0, $1) failed
+    at `oofs/tests/basic.rs:10:5`
 
-Paramters:
-    $my_struct: MyStruct = MyStruct { field0: 123, field1: "hello world" }
-    $x: usize = 321,
-    $y: &str = "watermelon sugar"
+Parameters:
+    $0: usize = 321
+    $1: &str = "watermelon sugar"
 
 Caused by:
-    0: some_fn($y) failed
-           at `oofs/tests/basic.rs:21:1`
+    0: some_fn($0) failed
+           at `oofs/tests/basic.rs:29:9`
 
-       parameters:
-           $y: &str = "watermelon sugar"
+       Parameters:
+           $0: &str = "watermelon sugar"
 
-    1: $text.parse::<u64>() failed
-           at `oofs/tests/basic.rs:32:18`
 
-       Paramters:
-           $text: &str = "watermelon sugar"
+    1: text.parse() failed
+           at `oofs/tests/basic.rs:39:13`
 
     2: invalid digit found in string
 ```

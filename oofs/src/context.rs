@@ -1,155 +1,114 @@
-use crate::{builder::OofBuilder, Oof};
 use core::fmt::{self, Debug, Display, Write};
-use std::{
-    any::TypeId,
-    collections::HashSet,
-    error::{self, Error},
-};
-
-// This default trait impl ensures no-op compile-success for non-static types.
-// and ensures that only static types are successfully tagged to error.
-pub trait __TagIfStatic {
-    fn tag_if_static<T>(&mut self) {}
-}
-impl __TagIfStatic for Oof {}
-impl Oof {
-    pub fn tag_if_static<T: 'static>(&mut self) {
-        self.tag::<T>()
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum OofMessage {
-    FnContext(FnContext),
-    Message(String),
+    Context(Context),
+    Custom(String),
 }
 
-impl From<FnContext> for OofMessage {
-    fn from(c: FnContext) -> Self {
-        OofMessage::FnContext(c)
+impl From<Context> for OofMessage {
+    fn from(c: Context) -> Self {
+        OofMessage::Context(c)
     }
 }
 
 impl From<String> for OofMessage {
     fn from(m: String) -> Self {
-        OofMessage::Message(m)
+        OofMessage::Custom(m)
     }
 }
 
 impl From<&str> for OofMessage {
     fn from(m: &str) -> Self {
-        OofMessage::Message(m.to_owned())
+        OofMessage::Custom(m.to_owned())
     }
 }
 
 impl Display for OofMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::FnContext(c) => Display::fmt(c, f),
-            Self::Message(m) => write!(f, "{m}"),
+            Self::Context(c) => Display::fmt(c, f),
+            Self::Custom(m) => Display::fmt(m, f),
         }
     }
 }
 
 impl OofMessage {
-    pub fn set_as_returning_option(&mut self) {
-        if let Self::FnContext(fn_context) = self {
-            fn_context.set_as_returning_option();
+    pub fn returns_option(&mut self) {
+        if let Self::Context(fn_context) = self {
+            fn_context.returns_option();
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct FnContext {
-    pub fn_name: &'static str,
-    pub params: Vec<FnArg>,
-    pub returns_option: bool,
-    pub is_async: bool,
+pub struct Context {
+    returns_option: bool,
+    receiver: Receiver,
+    chain: Vec<Method>,
 }
 
-impl Display for FnContext {
+impl Display for Context {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.write_fn(f, !f.alternate())
+        write!(f, "{}", self.receiver)?;
+
+        let is_multiline = self.chain.len() > 2;
+        if is_multiline && f.alternate() {
+            let mut indented = Indented {
+                inner: f,
+                number: None,
+                started: false,
+            };
+
+            for method in &self.chain {
+                write!(indented, "\n.{method}")?;
+            }
+        } else {
+            for method in &self.chain {
+                write!(f, ".{method}")?;
+            }
+        }
+
+        if self.returns_option {
+            write!(f, " returned `None`")?;
+        } else {
+            write!(f, " failed")?;
+        }
+
+        Ok(())
     }
 }
 
-impl FnContext {
-    #[track_caller]
-    pub fn new(is_async: bool, fn_name: &'static str, params: Vec<FnArg>) -> Self {
+impl Context {
+    pub fn new(receiver: Receiver) -> Self {
         Self {
-            fn_name,
-            params,
             returns_option: false,
-            is_async,
+            receiver,
+            chain: Vec::new(),
         }
     }
 
-    pub fn set_as_returning_option(&mut self) {
+    pub fn with_capacity(receiver: Receiver, capacity: usize) -> Self {
+        Self {
+            returns_option: false,
+            receiver,
+            chain: Vec::with_capacity(capacity),
+        }
+    }
+
+    pub fn add_method(&mut self, method: Method) {
+        self.chain.push(method);
+    }
+
+    pub fn returns_option(&mut self) {
         self.returns_option = true;
     }
 }
 
-impl FnContext {
-    pub fn write_fn(&self, f: &mut fmt::Formatter<'_>, multiline: bool) -> fmt::Result {
-        if self.is_async {
-            write!(f, "async ")?;
-        }
-
-        write!(f, "fn {}(", self.fn_name)?;
-
-        let multiline = multiline && self.params.len() > 1;
-
-        let mut params_iter = self.params.iter();
-
-        let param = params_iter.next().expect("len checked above");
-        if multiline {
-            let mut indented = Indented {
-                inner: f,
-                number: None,
-                started: false,
-            };
-
-            write!(indented, "\n{},", param.type_pair())?;
-        } else {
-            write!(f, "{}", param.type_pair())?;
-        }
-
-        for param in params_iter {
-            if multiline {
-                let mut indented = Indented {
-                    inner: f,
-                    number: None,
-                    started: false,
-                };
-
-                write!(indented, "\n{},", param.type_pair())?;
-            } else {
-                write!(f, ", {}", param.type_pair())?;
-            }
-        }
-
-        if multiline {
-            write!(f, "\n")?;
-        }
-
-        if self.returns_option {
-            write!(f, ") returned a `None`")?;
-        } else {
-            write!(f, ") failed")?;
-        }
-
-        Ok(())
-    }
-
-    pub fn write_params(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let params = self
-            .params
-            .iter()
-            .filter_map(|param| param.value_pair())
-            .collect::<Vec<_>>();
-
-        if !params.is_empty() {
-            write!(f, "\n\nParamters:")?;
+impl Context {
+    pub fn fmt_args(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.receiver.args_exists() || self.chain.iter().any(|m| !m.args.is_empty()) {
+            writeln!(f, "\n\nParameters:")?;
 
             let mut indented = Indented {
                 inner: f,
@@ -157,8 +116,10 @@ impl FnContext {
                 started: false,
             };
 
-            for param in params {
-                write!(indented, "\n{}", param)?;
+            self.receiver.fmt_args(&mut indented)?;
+
+            for method in &self.chain {
+                method.fmt_args(&mut indented)?;
             }
         }
 
@@ -167,18 +128,184 @@ impl FnContext {
 }
 
 #[derive(Debug, Clone)]
-pub struct FnArg {
-    pub var_type: VarType,
-    pub ref_type: RefType,
-    pub type_name: &'static str,
-    pub value: Option<String>,
+pub enum Receiver {
+    Ident(Ident),
+    Method(Method),
+    Arg(Arg),
+}
+
+impl From<Ident> for Receiver {
+    fn from(i: Ident) -> Self {
+        Self::Ident(i)
+    }
+}
+
+impl From<Method> for Receiver {
+    fn from(m: Method) -> Self {
+        Self::Method(m)
+    }
+}
+
+impl From<Arg> for Receiver {
+    fn from(m: Arg) -> Self {
+        Self::Arg(m)
+    }
+}
+
+impl Display for Receiver {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Ident(i) => Display::fmt(i, f),
+            Self::Method(m) => Display::fmt(m, f),
+            Self::Arg(a) => Display::fmt(a, f),
+        }
+    }
+}
+
+impl Receiver {
+    pub fn args_exists(&self) -> bool {
+        match self {
+            Self::Arg(_) => true,
+            Self::Method(m) => !m.args.is_empty(),
+            Self::Ident(_) => false,
+        }
+    }
+
+    pub fn fmt_args(&self, f: &mut impl Write) -> fmt::Result {
+        match self {
+            Self::Arg(a) => writeln!(f, "{a:#}"),
+            Self::Method(m) => m.fmt_args(f),
+            Self::Ident(_) => Ok(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Method {
+    is_async: bool,
+    name: &'static str,
+    args: Vec<Arg>,
+}
+
+impl Display for Method {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)?;
+        write!(f, "(")?;
+        match self.args.as_slice() {
+            // [arg] => write!(f, "{}", arg)?,
+            [rest @ .., last] => {
+                for arg in rest {
+                    write!(f, "{}, ", arg)?;
+                }
+                write!(f, "{}", last)?;
+            }
+            [] => {}
+        }
+        write!(f, ")")?;
+
+        if self.is_async {
+            write!(f, ".await")?;
+        }
+
+        Ok(())
+    }
+}
+
+impl Method {
+    fn fmt_args(&self, f: &mut impl Write) -> fmt::Result {
+        for arg in &self.args {
+            writeln!(f, "{arg:#}")?;
+        }
+
+        Ok(())
+    }
+}
+
+impl Method {
+    pub fn new(is_async: bool, name: &'static str, args: Vec<Arg>) -> Method {
+        Self {
+            is_async,
+            name,
+            args,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Ident {
+    name: &'static str,
+    is_async: bool,
+}
+
+impl Display for Ident {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)?;
+        if self.is_async {
+            write!(f, ".await")?;
+        }
+
+        Ok(())
+    }
+}
+
+impl Ident {
+    pub fn new(is_async: bool, name: &'static str) -> Ident {
+        Self { name, is_async }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Arg {
+    name: &'static str,
+    ref_ty: RefType,
+    ty: &'static str,
+    display: Option<String>,
+}
+
+impl Display for Arg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "${}", self.name)?;
+
+        if f.alternate() {
+            write!(f, ": {}{}", self.ref_ty, self.ty)?;
+
+            if let Some(display) = &self.display {
+                write!(f, " = {display}")?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl Arg {
+    pub fn new(
+        name: &'static str,
+        ref_ty: RefType,
+        ty: &'static str,
+        display: Option<String>,
+    ) -> Self {
+        Self {
+            ref_ty,
+            name,
+            ty,
+            display,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum RefType {
+    Ref,
+    RefMut,
+    Owned,
 }
 
 impl Display for RefType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let x = match self {
             RefType::Ref => "&",
-            RefType::RefMut => "&mut",
+            RefType::RefMut => "",
             RefType::Owned => "",
         };
 
@@ -186,81 +313,7 @@ impl Display for RefType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum VarType {
-    Expr {
-        param_num: &'static str,
-        expr: &'static str,
-    },
-    Var {
-        name: &'static str,
-    },
-}
-
-impl VarType {
-    pub fn expr(param_num: &'static str, expr: &'static str) -> Self {
-        Self::Expr { param_num, expr }
-    }
-
-    pub fn var(name: &'static str) -> Self {
-        Self::Var { name }
-    }
-
-    pub fn var_name(&self) -> &str {
-        match self {
-            VarType::Expr { param_num, .. } => param_num,
-            VarType::Var { name } => name,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum RefType {
-    Ref,
-    RefMut,
-    Owned,
-}
-
-impl FnArg {
-    pub fn new(
-        var_type: VarType,
-        ref_type: RefType,
-        type_name: &'static str,
-        value: Option<String>,
-    ) -> FnArg {
-        Self {
-            var_type,
-            ref_type,
-            type_name,
-            value,
-        }
-    }
-
-    pub fn type_pair(&self) -> String {
-        format!(
-            "${}: {}{}",
-            self.var_type.var_name(),
-            self.ref_type,
-            self.type_name
-        )
-    }
-
-    pub fn value_pair(&self) -> Option<String> {
-        if let Some(value) = &self.value {
-            let pair = match self.var_type {
-                VarType::Var { name } => format!("${}: {}", name, value),
-                VarType::Expr { param_num, expr } => {
-                    format!("${}:\n    expr: {}\n    value: {}", param_num, expr, value)
-                }
-            };
-
-            Some(pair)
-        } else {
-            None
-        }
-    }
-}
-
+#[non_exhaustive]
 #[derive(Debug, Copy, Clone)]
 pub struct Location {
     /// The file where the error was reported
@@ -269,9 +322,6 @@ pub struct Location {
     line: u32,
     /// The column where the error was reported
     column: u32,
-
-    // Use `#[non_exhaustive]` when we upgrade to Rust 1.40
-    _other: (),
 }
 
 impl Default for Location {
@@ -297,12 +347,7 @@ impl fmt::Display for Location {
 impl Location {
     /// Constructs a `Location` using the given information
     pub fn new(file: &'static str, line: u32, column: u32) -> Self {
-        Self {
-            file,
-            line,
-            column,
-            _other: (),
-        }
+        Self { file, line, column }
     }
 
     #[inline]

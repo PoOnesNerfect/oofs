@@ -37,12 +37,12 @@ impl<T> __TsaBin<&mut T> {
     }
 }
 impl<T> __TsaBin<&T> {
-    pub const fn __ref_type(&self) -> RefType {
+    pub fn __ref_type(&self) -> RefType {
         RefType::Ref
     }
 }
 impl<T: Copy> __TsaBin<T> {
-    pub const fn __try_lazy_fn<F>(&self, _display_owned: bool, f: F) -> __LazyDisplayFn<Self, F>
+    pub fn __try_lazy_fn<F>(&self, _display_owned: bool, f: F) -> __LazyDisplayFn<Self, F>
     where
         F: FnOnce(Self) -> Option<String>,
     {

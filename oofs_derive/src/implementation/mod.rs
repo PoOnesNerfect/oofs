@@ -16,9 +16,9 @@ const OOF_METHODS: &[&str] = &[
 
 mod action;
 mod call_chain;
+mod context;
 mod fn_item;
 mod impl_item;
-mod oof;
 mod util;
 mod write;
 
@@ -73,9 +73,9 @@ impl Parse for Oofs {
         let attrs = Attribute::parse_outer(input)?;
 
         let mut lookahead = input.lookahead1();
-        let ahead = input.fork();
 
         if lookahead.peek(Token![unsafe]) {
+            let ahead = input.fork();
             ahead.parse::<Token![unsafe]>()?;
             lookahead = ahead.lookahead1();
         }
@@ -83,20 +83,12 @@ impl Parse for Oofs {
         if lookahead.peek(Token![impl]) || lookahead.peek(Token![default]) {
             let mut item: OofImpl = input.parse()?;
             item.inner.attrs = attrs;
-            return Ok(Self::Impl(item));
-        }
-
-        if lookahead.peek(Token![pub]) {
-            ahead.parse::<Token![pub]>()?;
-            lookahead = ahead.lookahead1();
-        }
-
-        if lookahead.peek(Token![const]) {
-            ahead.parse::<Token![const]>()?;
-            lookahead = ahead.lookahead1();
-        }
-
-        if lookahead.peek(Token![fn]) || lookahead.peek(Token![async]) {
+            Ok(Self::Impl(item))
+        } else if lookahead.peek(Token![fn])
+            || lookahead.peek(Token![pub])
+            || lookahead.peek(Token![async])
+            || lookahead.peek(Token![const])
+        {
             let mut item: OofFn = input.parse()?;
             item.inner.attrs = attrs;
             Ok(Self::Fn(item))

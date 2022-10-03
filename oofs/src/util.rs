@@ -1,4 +1,17 @@
+use crate::Oof;
 use std::any::TypeId;
+
+// This default trait impl ensures no-op compile-success for non-static types.
+// and ensures that only static types are successfully tagged to error.
+pub trait __TagIfStatic {
+    fn tag_if_static<T>(&mut self) {}
+}
+impl __TagIfStatic for Oof {}
+impl Oof {
+    pub fn tag_if_static<T: 'static>(&mut self) {
+        self.tag::<T>()
+    }
+}
 
 pub trait __TypeInfo {
     fn __type_name(&self) -> &'static str {
@@ -26,7 +39,7 @@ mod tests {
 
         assert_eq!(
             x.__type_name(),
-            "oof::util::tests::__Struct<alloc::string::String>"
+            "oofs::util::tests::__Struct<alloc::string::String>"
         );
     }
 

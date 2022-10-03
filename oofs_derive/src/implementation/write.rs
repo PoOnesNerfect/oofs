@@ -1,4 +1,4 @@
-use super::oof::oof;
+use super::context::context;
 use quote::ToTokens;
 use syn::{token::Semi, *};
 
@@ -24,7 +24,7 @@ impl<'a> Writer<'a> {
     }
 
     fn stmts(self, stmts: &Vec<Stmt>) {
-        let Self { tokens } = self;
+        let Self { tokens, .. } = self;
         for stmt in stmts {
             match stmt {
                 Stmt::Local(local) => write(tokens).local(local),
@@ -121,7 +121,7 @@ impl<'a> Writer<'a> {
             attr.to_tokens(tokens);
         }
 
-        oof(tokens).should_build().expr(expr);
+        context(tokens).expr(expr);
 
         question_token.to_tokens(tokens);
     }
