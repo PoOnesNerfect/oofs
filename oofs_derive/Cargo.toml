@@ -10,7 +10,7 @@ homepage = "https://github.com/PoOnesNerfect/oofs"
 license = "MIT"
 readme = "../README.md"
 categories = ["rust-patterns"]
-keywords = ["error", "error-handling", "attribute"]
+keywords = ["error", "error-handling", "attribute", "bubble-up"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

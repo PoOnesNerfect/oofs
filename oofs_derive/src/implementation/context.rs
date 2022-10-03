@@ -81,7 +81,23 @@ impl<'a> ToTokens for ContextInner<'a> {
         });
 
         for oof_method in oof_methods {
-            oof_method.to_tokens(tokens);
+            let ExprMethodCall {
+                dot_token,
+                method,
+                turbofish,
+                paren_token,
+                args,
+                ..
+            } = oof_method;
+            dot_token.to_tokens(tokens);
+            method.to_tokens(tokens);
+            turbofish.to_tokens(tokens);
+            paren_token.surround(tokens, |parens| {
+                for pair in args.pairs() {
+                    pair.value().to_tokens(parens);
+                    pair.punct().to_tokens(parens);
+                }
+            });
         }
 
         tokens.extend(quote!(.map_err(|b| b.build())));

@@ -9,9 +9,9 @@ use std::{
 
 // FEATURES:
 // - attribute macros
-// - oof!() like anyhow!()
-//   - takes boolean value as optional first param. ex) oof!(list.is_empty(), "something")
-// - oof_eq!()
+//   - #[oofs(tag(MyTag))]
+//   - #[oofs(debug_strategy(owned))]
+// - oof_eq!(actual, expected);
 // - suggestions?
 // display_owned:
 //   default: debug on and release off
@@ -179,12 +179,16 @@ impl Oof {
     }
 
     pub fn tagged_nested_rev<T: 'static>(&self) -> bool {
-        for cause in chain::Chain::new(self).rev() {
+        for cause in chain::Chain::new(self).skip(1).rev() {
             if let Some(e) = cause.downcast_ref::<Oof>() {
                 if e.tagged::<T>() {
                     return true;
                 }
             }
+        }
+
+        if self.tagged::<T>() {
+            return true;
         }
 
         false
