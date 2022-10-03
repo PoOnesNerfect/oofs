@@ -1,6 +1,6 @@
 [package]
 name = "oofs_derive"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 authors = ["PoOnesNerfect <jack.y.l.dev@gmail.com>"]
 description = "Error Handler for the Bubble Up Stage"
