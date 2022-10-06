@@ -1,59 +1,47 @@
 use core::fmt::{self, Debug, Display, Write};
 
 #[derive(Debug, Clone)]
-pub enum OofMessage {
-    Context(Context),
+pub(crate) enum Context {
+    Generated(OofGeneratedContext),
     Custom(String),
+    None,
 }
 
-impl From<Context> for OofMessage {
-    fn from(c: Context) -> Self {
-        OofMessage::Context(c)
+impl Default for Context {
+    fn default() -> Self {
+        Context::None
     }
 }
 
-impl From<String> for OofMessage {
-    fn from(m: String) -> Self {
-        OofMessage::Custom(m)
+impl From<OofGeneratedContext> for Context {
+    fn from(c: OofGeneratedContext) -> Self {
+        Context::Generated(c)
     }
 }
 
-impl From<&str> for OofMessage {
-    fn from(m: &str) -> Self {
-        OofMessage::Custom(m.to_owned())
-    }
-}
-
-impl Display for OofMessage {
+impl Display for Context {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Context(c) => Display::fmt(c, f),
+            Self::Generated(c) => Display::fmt(c, f),
             Self::Custom(m) => Display::fmt(m, f),
-        }
-    }
-}
-
-impl OofMessage {
-    pub fn returns_option(&mut self) {
-        if let Self::Context(fn_context) = self {
-            fn_context.returns_option();
+            Self::None => write!(f, "Error encountered"),
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct Context {
+pub struct OofGeneratedContext {
+    receiver: OofReceiver,
+    chain: Vec<OofMethod>,
     returns_option: bool,
-    receiver: Receiver,
-    chain: Vec<Method>,
 }
 
-impl Display for Context {
+impl Display for OofGeneratedContext {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.receiver)?;
 
         let is_multiline = self.chain.len() > 2;
-        if is_multiline && f.alternate() {
+        if is_multiline && !f.alternate() {
             let mut indented = Indented {
                 inner: f,
                 number: None,
@@ -79,8 +67,8 @@ impl Display for Context {
     }
 }
 
-impl Context {
-    pub fn new(receiver: Receiver) -> Self {
+impl OofGeneratedContext {
+    pub fn new(receiver: OofReceiver) -> Self {
         Self {
             returns_option: false,
             receiver,
@@ -88,7 +76,7 @@ impl Context {
         }
     }
 
-    pub fn with_capacity(receiver: Receiver, capacity: usize) -> Self {
+    pub fn with_capacity(receiver: OofReceiver, capacity: usize) -> Self {
         Self {
             returns_option: false,
             receiver,
@@ -96,7 +84,7 @@ impl Context {
         }
     }
 
-    pub fn with_method(mut self, method: Method) -> Self {
+    pub fn with_method(mut self, method: OofMethod) -> Self {
         self.chain.push(method);
         self
     }
@@ -106,10 +94,10 @@ impl Context {
     }
 }
 
-impl Context {
+impl OofGeneratedContext {
     pub fn fmt_args(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.receiver.args_exists() || self.chain.iter().any(|m| !m.args.is_empty()) {
-            writeln!(f, "\n\nParameters:")?;
+            writeln!(f, "\nParameters:")?;
 
             let mut indented = Indented {
                 inner: f,
@@ -129,31 +117,31 @@ impl Context {
 }
 
 #[derive(Debug, Clone)]
-pub enum Receiver {
-    Ident(Ident),
-    Method(Method),
-    Arg(Arg),
+pub enum OofReceiver {
+    Ident(OofIdent),
+    Method(OofMethod),
+    Arg(OofArg),
 }
 
-impl From<Ident> for Receiver {
-    fn from(i: Ident) -> Self {
+impl From<OofIdent> for OofReceiver {
+    fn from(i: OofIdent) -> Self {
         Self::Ident(i)
     }
 }
 
-impl From<Method> for Receiver {
-    fn from(m: Method) -> Self {
+impl From<OofMethod> for OofReceiver {
+    fn from(m: OofMethod) -> Self {
         Self::Method(m)
     }
 }
 
-impl From<Arg> for Receiver {
-    fn from(m: Arg) -> Self {
+impl From<OofArg> for OofReceiver {
+    fn from(m: OofArg) -> Self {
         Self::Arg(m)
     }
 }
 
-impl Display for Receiver {
+impl Display for OofReceiver {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Ident(i) => Display::fmt(i, f),
@@ -163,7 +151,7 @@ impl Display for Receiver {
     }
 }
 
-impl Receiver {
+impl OofReceiver {
     pub fn args_exists(&self) -> bool {
         match self {
             Self::Arg(_) => true,
@@ -182,18 +170,17 @@ impl Receiver {
 }
 
 #[derive(Debug, Clone)]
-pub struct Method {
+pub struct OofMethod {
     is_async: bool,
     name: &'static str,
-    args: Vec<Arg>,
+    args: Vec<OofArg>,
 }
 
-impl Display for Method {
+impl Display for OofMethod {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name)?;
         write!(f, "(")?;
         match self.args.as_slice() {
-            // [arg] => write!(f, "{}", arg)?,
             [rest @ .., last] => {
                 for arg in rest {
                     write!(f, "{}, ", arg)?;
@@ -212,7 +199,7 @@ impl Display for Method {
     }
 }
 
-impl Method {
+impl OofMethod {
     fn fmt_args(&self, f: &mut impl Write) -> fmt::Result {
         for arg in &self.args {
             writeln!(f, "{arg:#}")?;
@@ -222,8 +209,8 @@ impl Method {
     }
 }
 
-impl Method {
-    pub fn new(is_async: bool, name: &'static str, args: Vec<Arg>) -> Method {
+impl OofMethod {
+    pub fn new(is_async: bool, name: &'static str, args: Vec<OofArg>) -> OofMethod {
         Self {
             is_async,
             name,
@@ -233,12 +220,12 @@ impl Method {
 }
 
 #[derive(Debug, Clone)]
-pub struct Ident {
+pub struct OofIdent {
     name: &'static str,
     is_async: bool,
 }
 
-impl Display for Ident {
+impl Display for OofIdent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name)?;
         if self.is_async {
@@ -249,26 +236,25 @@ impl Display for Ident {
     }
 }
 
-impl Ident {
-    pub fn new(is_async: bool, name: &'static str) -> Ident {
+impl OofIdent {
+    pub fn new(is_async: bool, name: &'static str) -> OofIdent {
         Self { name, is_async }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct Arg {
+pub struct OofArg {
     name: &'static str,
-    ref_ty: RefType,
     ty: &'static str,
     display: Option<String>,
 }
 
-impl Display for Arg {
+impl Display for OofArg {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "${}", self.name)?;
 
         if f.alternate() {
-            write!(f, ": {}{}", self.ref_ty, self.ty)?;
+            write!(f, ": {}", self.ty)?;
 
             if let Some(display) = &self.display {
                 write!(f, " = {display}")?;
@@ -279,41 +265,13 @@ impl Display for Arg {
     }
 }
 
-impl Arg {
-    pub fn new(
-        name: &'static str,
-        ref_ty: RefType,
-        ty: &'static str,
-        display: Option<String>,
-    ) -> Self {
-        Self {
-            ref_ty,
-            name,
-            ty,
-            display,
-        }
+impl OofArg {
+    pub fn new(name: &'static str, ty: &'static str, display: Option<String>) -> Self {
+        Self { name, ty, display }
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum RefType {
-    Ref,
-    RefMut,
-    Owned,
-}
-
-impl Display for RefType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let x = match self {
-            RefType::Ref => "&",
-            RefType::RefMut => "",
-            RefType::Owned => "",
-        };
-
-        write!(f, "{x}")
-    }
-}
-
+#[cfg(feature = "location")]
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone)]
 pub struct Location {
@@ -325,14 +283,16 @@ pub struct Location {
     column: u32,
 }
 
+#[cfg(feature = "location")]
 impl Default for Location {
     #[inline]
-    #[track_caller]
+    #[cfg_attr(feature = "location", track_caller)]
     fn default() -> Self {
         Self::caller()
     }
 }
 
+#[cfg(feature = "location")]
 impl fmt::Display for Location {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -345,6 +305,7 @@ impl fmt::Display for Location {
     }
 }
 
+#[cfg(feature = "location")]
 impl Location {
     /// Constructs a `Location` using the given information
     pub fn new(file: &'static str, line: u32, column: u32) -> Self {
@@ -352,7 +313,7 @@ impl Location {
     }
 
     #[inline]
-    #[track_caller]
+    #[cfg_attr(feature = "location", track_caller)]
     pub fn caller() -> Self {
         let loc = core::panic::Location::caller();
         Self::new(loc.file(), loc.line(), loc.column())

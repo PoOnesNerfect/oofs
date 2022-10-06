@@ -1,20 +1,15 @@
-use crate::RefType;
 use core::fmt;
 
 pub trait __TsaCheck {
-    fn __ref_type(&self) -> RefType {
-        RefType::Owned
-    }
-
     fn __try_debug(&self) -> Option<String> {
         None
     }
 
-    fn __try_lazy_fn<F>(&self, display_owned: bool, f: F) -> __InstantDisplayFn
+    fn __try_lazy_fn<F>(&self, debug_owned: bool, f: F) -> __InstantDisplayFn
     where
         F: FnOnce(&Self) -> Option<String>,
     {
-        __InstantDisplayFn(display_owned.then(|| f(self)).flatten())
+        __InstantDisplayFn(debug_owned.then(|| f(self)).flatten())
     }
 }
 impl<T> __TsaCheck for __TsaBin<T> {}
@@ -31,18 +26,8 @@ impl<T: fmt::Debug> __TsaBin<T> {
         Some(format!("{:?}", self.0))
     }
 }
-impl<T> __TsaBin<&mut T> {
-    pub fn __ref_type(&self) -> RefType {
-        RefType::RefMut
-    }
-}
-impl<T> __TsaBin<&T> {
-    pub fn __ref_type(&self) -> RefType {
-        RefType::Ref
-    }
-}
 impl<T: Copy> __TsaBin<T> {
-    pub fn __try_lazy_fn<F>(&self, _display_owned: bool, f: F) -> __LazyDisplayFn<Self, F>
+    pub fn __try_lazy_fn<F>(&self, _: bool, f: F) -> __LazyDisplayFn<Self, F>
     where
         F: FnOnce(Self) -> Option<String>,
     {

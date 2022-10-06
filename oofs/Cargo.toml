@@ -15,8 +15,10 @@ keywords = ["error", "error-handling", "bubble-up"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-display_owned_release = []
-display_owned_disabled = []
+default = ["location"]
+location = []
+debug_strategy_disabled = []
+debug_strategy_full = []
 
 [dependencies]
-oofs_derive = { version = "=0.1.6", path = "../oofs_derive" }
+oofs_derive = { version = "=0.1.7", path = "../oofs_derive" }

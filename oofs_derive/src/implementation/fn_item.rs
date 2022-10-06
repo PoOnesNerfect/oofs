@@ -1,28 +1,16 @@
-use super::{action::Action, write::write};
+use super::write::write;
 use quote::ToTokens;
 use syn::{parse::Parse, ItemFn};
 
 pub struct OofFn {
-    pub actions: Vec<Action>,
     pub inner: ItemFn,
 }
 
 impl Parse for OofFn {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let item_fn: ItemFn = input.parse()?;
-        let mut actions = Vec::new();
 
-        for attr in &item_fn.attrs {
-            if attr.path.is_ident("oofs") {
-                let tokens = &attr.tokens;
-                actions.push(syn::parse_quote!(#tokens));
-            }
-        }
-
-        Ok(Self {
-            actions,
-            inner: item_fn,
-        })
+        Ok(Self { inner: item_fn })
     }
 }
 

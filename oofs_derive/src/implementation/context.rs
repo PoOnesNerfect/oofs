@@ -1,12 +1,12 @@
-use super::{write::write, OOF_METHODS};
+use super::write::write;
 use proc_macro2::Span;
 use quote::{quote, quote_spanned, ToTokens};
 use syn::{
     punctuated::Punctuated,
     spanned::Spanned,
     token::Comma,
-    token::{Await, Brace, Dot, Eq, Let, Semi},
-    Expr, ExprAwait, ExprCall, ExprMethodCall, Ident, Path, PathArguments, ReturnType,
+    token::{Await, Brace, Dot, Eq, Let, Paren, Semi},
+    Expr, ExprAwait, ExprCall, ExprField, ExprMethodCall, Ident, Path, PathArguments, ReturnType,
 };
 
 pub fn context<'a>(tokens: &'a mut proc_macro2::TokenStream) -> Context<'a> {
@@ -31,7 +31,6 @@ struct ContextInner<'a> {
     agg_index: usize,
     receiver: Receiver<'a>,
     chain: Vec<Method<'a>>,
-    oof_methods: Vec<&'a ExprMethodCall>,
 }
 
 impl<'a> ToTokens for ContextInner<'a> {
@@ -39,26 +38,23 @@ impl<'a> ToTokens for ContextInner<'a> {
         let Self {
             receiver,
             chain,
-            oof_methods,
             agg_index: _,
         } = self;
 
         Brace(Span::call_site()).surround(tokens, |braced| {
             braced.extend(quote! {
-                use ::oofs::used_by_attribute::*;
-                let __display_owned = true && DISPLAY_OWNED;
+                use ::oofs::__used_by_attribute::*;
+                let __display_owned = DEBUG_OWNED;
+
+                fn type_name_of_val<T>(_t: &T) -> &'static str {
+                    core::any::type_name::<T>()
+                }
             });
 
             receiver.write_prep(braced);
 
-            for method in chain {
+            for method in chain.iter().filter(|m| !m.is_meta) {
                 method.write_prep(braced);
-            }
-
-            receiver.write_call(braced);
-
-            for method in chain {
-                method.write_call(braced);
             }
 
             let span = if let Some(last) = chain.last() {
@@ -67,39 +63,23 @@ impl<'a> ToTokens for ContextInner<'a> {
                 receiver.get_span()
             };
 
-            braced.extend(quote_spanned! {span=>
-                .with_oof_builder(|| {
-                    let context = Context::new(#receiver .into())
-                    #(
-                        .with_method(#chain)
-                    )* ;
+            braced.extend(quote_spanned!(span=> OofGenerator::build_oof));
+            Paren(span).surround(braced, |parens| {
+                receiver.write_call(parens);
 
-                    OofBuilder::new(context.into())
-                })
-            });
-        });
+                for method in chain {
+                    method.write_call(parens);
+                }
 
-        for oof_method in oof_methods {
-            let ExprMethodCall {
-                dot_token,
-                method,
-                turbofish,
-                paren_token,
-                args,
-                ..
-            } = oof_method;
-            dot_token.to_tokens(tokens);
-            method.to_tokens(tokens);
-            turbofish.to_tokens(tokens);
-            paren_token.surround(tokens, |parens| {
-                for pair in args.pairs() {
-                    pair.value().to_tokens(parens);
-                    pair.punct().to_tokens(parens);
+                parens
+                    .extend(quote_spanned!(span=>, || OofGeneratedContext::new(#receiver.into())));
+
+                // if the given method call is a meta method, then skip creating a context.
+                for method in chain.iter().filter(|m| !m.is_meta) {
+                    parens.extend(quote_spanned!(span=>.with_method(#method)));
                 }
             });
-        }
-
-        tokens.extend(quote!(.map_err(|b| b.build())));
+        });
     }
 }
 
@@ -116,21 +96,12 @@ impl<'a> ContextInner<'a> {
             Expr::Call(call) => Self::_call(call, depth),
             Expr::Await(expr_await) => Self::_await(expr_await, depth),
             Expr::Path(_) => Self::_path(expr, depth),
+            Expr::Field(_) => Self::_field(expr, depth),
             expr => Self::_other(expr, depth),
         }
     }
 
     fn _method_call(_method_call: &'a ExprMethodCall, depth: usize) -> Self {
-        // if the given method call is any of oof_methods like .tag(), .add_context(), etc.
-        // then oof the receiver expr.
-        if OOF_METHODS.iter().any(|m| _method_call.method == m) {
-            let mut this = Self::_expr(&_method_call.receiver, depth);
-
-            this.oof_methods.push(_method_call);
-
-            return this;
-        }
-
         let mut this = Self::_expr(&_method_call.receiver, depth + 1);
 
         let index = this.chain.len();
@@ -149,7 +120,6 @@ impl<'a> ContextInner<'a> {
             receiver: Receiver::call(&mut agg_index, _call),
             agg_index,
             chain: Vec::with_capacity(depth),
-            oof_methods: Vec::new(),
         }
     }
 
@@ -186,9 +156,23 @@ impl<'a> ContextInner<'a> {
                         receiver: Receiver::ident(&first.ident),
                         agg_index: 0,
                         chain: Vec::with_capacity(depth),
-                        oof_methods: Vec::new(),
                     };
                 }
+            }
+        }
+
+        Self::_other(expr, depth)
+    }
+
+    fn _field(expr: &'a Expr, depth: usize) -> Self {
+        if let Expr::Field(field) = expr {
+            // if field is of a variable, we don't want to consume it.
+            if matches!(field.base.as_ref(), Expr::Path(_)) {
+                return Self {
+                    receiver: Receiver::field(&field),
+                    agg_index: 0,
+                    chain: Vec::with_capacity(depth),
+                };
             }
         }
 
@@ -202,7 +186,6 @@ impl<'a> ContextInner<'a> {
             receiver: Receiver::arg(&mut agg_index, _other),
             agg_index,
             chain: Vec::with_capacity(depth),
-            oof_methods: Vec::new(),
         }
     }
 }
@@ -221,6 +204,7 @@ impl<'a> ToTokens for DotAwait<'a> {
 
 enum Receiver<'a> {
     Ident(IdentReceiver<'a>),
+    Field(Field<'a>),
     Call(Call<'a>),
     Arg(Arg<'a>),
 }
@@ -229,9 +213,14 @@ impl<'a> Receiver<'a> {
     fn get_span(&self) -> Span {
         match self {
             Self::Ident(i) => i.get_span(),
+            Self::Field(f) => f.get_span(),
             Self::Call(c) => c.get_span(),
             Self::Arg(a) => a.get_span(),
         }
+    }
+
+    fn field(field: &'a ExprField) -> Self {
+        Self::Field(Field::new(field))
     }
 
     fn ident(ident: &'a Ident) -> Self {
@@ -249,6 +238,7 @@ impl<'a> Receiver<'a> {
     fn dot_await(&mut self, dot_token: &'a Dot, await_token: &'a Await) {
         match self {
             Self::Ident(i) => i.dot_await(dot_token, await_token),
+            Self::Field(f) => f.dot_await(dot_token, await_token),
             Self::Arg(a) => a.dot_await(dot_token, await_token),
             Self::Call(c) => c.dot_await(dot_token, await_token),
         }
@@ -257,6 +247,7 @@ impl<'a> Receiver<'a> {
     fn write_prep(&self, tokens: &mut proc_macro2::TokenStream) {
         match self {
             Self::Ident(i) => i.write_prep(tokens),
+            Self::Field(f) => f.write_prep(tokens),
             Self::Arg(a) => a.write_prep(tokens),
             Self::Call(c) => c.write_prep(tokens),
         }
@@ -265,6 +256,7 @@ impl<'a> Receiver<'a> {
     fn write_call(&self, tokens: &mut proc_macro2::TokenStream) {
         match self {
             Self::Ident(i) => i.write_call(tokens),
+            Self::Field(f) => f.write_call(tokens),
             Self::Arg(a) => a.write_call(tokens),
             Self::Call(c) => c.write_call(tokens),
         }
@@ -275,6 +267,7 @@ impl<'a> ToTokens for Receiver<'a> {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         match self {
             Self::Ident(i) => i.to_tokens(tokens),
+            Self::Field(f) => f.to_tokens(tokens),
             Self::Arg(a) => a.to_tokens(tokens),
             Self::Call(c) => c.to_tokens(tokens),
         }
@@ -322,7 +315,52 @@ impl<'a> ToTokens for IdentReceiver<'a> {
         let is_async = dot_await.is_some();
 
         tokens.extend(quote! {
-            Ident::new(#is_async, stringify!(#ident))
+            OofIdent::new(#is_async, stringify!(#ident))
+        });
+    }
+}
+struct Field<'a> {
+    field: &'a ExprField,
+    dot_await: Option<DotAwait<'a>>,
+}
+
+impl<'a> Field<'a> {
+    fn new(field: &'a ExprField) -> Self {
+        Self {
+            field,
+            dot_await: None,
+        }
+    }
+
+    fn dot_await(&mut self, dot_token: &'a Dot, await_token: &'a Await) {
+        self.dot_await.replace(DotAwait {
+            dot_token,
+            await_token,
+        });
+    }
+
+    fn write_prep(&self, _tokens: &mut proc_macro2::TokenStream) {}
+
+    fn write_call(&self, tokens: &mut proc_macro2::TokenStream) {
+        let Self { field, dot_await } = self;
+
+        field.to_tokens(tokens);
+        dot_await.to_tokens(tokens);
+    }
+
+    fn get_span(&self) -> Span {
+        self.field.span()
+    }
+}
+
+impl<'a> ToTokens for Field<'a> {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        let Self { field, dot_await } = self;
+
+        let is_async = dot_await.is_some();
+
+        tokens.extend(quote! {
+            OofIdent::new(#is_async, stringify!(#field))
         });
     }
 }
@@ -337,7 +375,7 @@ struct Call<'a> {
 impl<'a> Call<'a> {
     fn new(prefix: &str, agg_index: &mut usize, expr: &'a ExprCall) -> Self {
         let mut name = String::new();
-        fmt_func(&mut name, &expr.func);
+        fmt_expr(&mut name, &expr.func);
 
         let this = Self {
             name,
@@ -402,12 +440,13 @@ impl<'a> ToTokens for Call<'a> {
         let args = args.iter().map(|(a, _)| a);
 
         tokens.extend(quote! {
-            Method::new(#is_async, #name, vec![#(#args),*])
+            OofMethod::new(#is_async, #name, vec![#(#args),*])
         });
     }
 }
 
 struct Method<'a> {
+    is_meta: bool,
     args: Vec<(Arg<'a>, Option<&'a Comma>)>,
     dot_await: Option<DotAwait<'a>>,
     expr: &'a ExprMethodCall,
@@ -417,8 +456,15 @@ impl<'a> Method<'a> {
     fn new(index: usize, agg_index: &mut usize, expr: &'a ExprMethodCall) -> Self {
         let prefix = format!("__{}", index);
 
+        let is_meta = expr.method.to_string().starts_with('_');
+
+        let args = (!is_meta)
+            .then(|| Arg::from_punctuated(&prefix, agg_index, &expr.args))
+            .unwrap_or_default();
+
         let this = Self {
-            args: Arg::from_punctuated(&prefix, agg_index, &expr.args),
+            is_meta,
+            args,
             dot_await: None,
             expr,
         };
@@ -441,6 +487,7 @@ impl<'a> Method<'a> {
 
     fn write_call(&self, tokens: &mut proc_macro2::TokenStream) {
         let Self {
+            is_meta,
             args,
             dot_await,
             expr,
@@ -450,6 +497,7 @@ impl<'a> Method<'a> {
             method,
             turbofish,
             paren_token,
+            args: meta_args,
             ..
         } = expr;
 
@@ -457,9 +505,16 @@ impl<'a> Method<'a> {
         method.to_tokens(tokens);
         turbofish.to_tokens(tokens);
         paren_token.surround(tokens, |parens| {
-            for (arg, punct) in args {
-                arg.write_call(parens);
-                punct.to_tokens(parens);
+            if *is_meta {
+                for pair in meta_args.pairs() {
+                    write(parens).expr(pair.value());
+                    pair.punct().to_tokens(parens);
+                }
+            } else {
+                for (arg, punct) in args {
+                    arg.write_call(parens);
+                    punct.to_tokens(parens);
+                }
             }
         });
         dot_await.to_tokens(tokens);
@@ -480,7 +535,7 @@ impl<'a> ToTokens for Method<'a> {
         let args = args.iter().map(|(a, _)| a);
 
         tokens.extend(quote! {
-            Method::new(#is_async, stringify!(#name), vec![#(#args),*])
+            OofMethod::new(#is_async, stringify!(#name), vec![#(#args),*])
         });
     }
 }
@@ -490,7 +545,6 @@ struct Arg<'a> {
     arg: Ident,
     arg_type: Ident,
     arg_bin: Ident,
-    arg_ref_type: Ident,
     arg_display_fn: Ident,
     dot_await: Option<DotAwait<'a>>,
     expr: &'a Expr,
@@ -509,7 +563,6 @@ impl<'a> Arg<'a> {
             arg: Ident::new(&arg_str, expr.span()),
             arg_type: Ident::new(&format!("{arg_str}_type"), expr.span()),
             arg_bin: Ident::new(&format!("{arg_str}_bin"), expr.span()),
-            arg_ref_type: Ident::new(&format!("{arg_str}_ref_type"), expr.span()),
             arg_display_fn: Ident::new(&format!("{arg_str}_display_fn"), expr.span()),
             dot_await: None,
             expr,
@@ -545,7 +598,6 @@ impl<'a> Arg<'a> {
             arg,
             arg_type,
             arg_bin,
-            arg_ref_type,
             arg_display_fn,
             expr,
             ..
@@ -558,9 +610,8 @@ impl<'a> Arg<'a> {
         Semi(Span::call_site()).to_tokens(tokens);
 
         tokens.extend(quote! {
-            let #arg_type = #arg.__type_name();
+            let #arg_type = type_name_of_val(&#arg);
             let #arg_bin = __TsaBin(#arg);
-            let #arg_ref_type = #arg_bin.__ref_type();
             let #arg_display_fn = #arg_bin.__try_lazy_fn(__display_owned, |v| v.__try_debug());
             let #arg = #arg_bin.__tsa_unload();
         });
@@ -581,15 +632,13 @@ impl<'a> ToTokens for Arg<'a> {
         let Self {
             name,
             arg_type,
-            arg_ref_type,
             arg_display_fn,
             ..
         } = self;
 
         tokens.extend(quote! {
-            Arg::new(
+            OofArg::new(
                 #name,
-                #arg_ref_type,
                 #arg_type,
                 #arg_display_fn.call(),
             )
@@ -597,7 +646,7 @@ impl<'a> ToTokens for Arg<'a> {
     }
 }
 
-fn fmt_func(f: &mut String, func: &Expr) {
+fn fmt_expr(f: &mut String, func: &Expr) {
     use Expr::*;
     match func {
         Path(path) => {
@@ -610,26 +659,26 @@ fn fmt_func(f: &mut String, func: &Expr) {
             *f += &format!("async {}{{ ... }}", e.capture.map(|_| "move").unwrap_or(""));
         }
         Await(e) => {
-            fmt_func(f, e.base.as_ref());
+            fmt_expr(f, e.base.as_ref());
             *f += ".await";
         }
         Binary(e) => {
-            fmt_func(f, &e.left);
+            fmt_expr(f, &e.left);
             *f += &format!(" {} ", e.op.to_token_stream().to_string());
-            fmt_func(f, &e.right);
+            fmt_expr(f, &e.right);
         }
         Box(e) => {
             *f += "box ";
-            fmt_func(f, &e.expr);
+            fmt_expr(f, &e.expr);
         }
         Break(e) => {
             *f += "break ";
             if let Some(expr) = &e.expr {
-                fmt_func(f, &expr);
+                fmt_expr(f, &expr);
             }
         }
         Call(e) => {
-            fmt_func(f, &e.func);
+            fmt_expr(f, &e.func);
             f.push('(');
             for a in e.args.pairs() {
                 *f += "_";
@@ -641,7 +690,7 @@ fn fmt_func(f: &mut String, func: &Expr) {
         }
         Block(_) => *f += "{ ... }",
         Cast(e) => {
-            fmt_func(f, &e.expr);
+            fmt_expr(f, &e.expr);
             *f += " as _";
         }
         Closure(e) => {
@@ -664,32 +713,32 @@ fn fmt_func(f: &mut String, func: &Expr) {
             *f += "| { ... }";
         }
         Field(e) => {
-            fmt_func(f, &e.base);
+            fmt_expr(f, &e.base);
             *f += &format!(".{}", e.member.to_token_stream());
         }
         ForLoop(e) => {
             *f += "for _ in ";
-            fmt_func(f, &e.expr);
+            fmt_expr(f, &e.expr);
             *f += " { ... }";
         }
-        Group(e) => fmt_func(f, &e.expr),
+        Group(e) => fmt_expr(f, &e.expr),
         If(e) => {
             *f += "if ";
-            fmt_func(f, &e.cond);
+            fmt_expr(f, &e.cond);
             *f += " { ... }";
             if e.else_branch.is_some() {
                 *f += " else { ... }";
             }
         }
         Index(e) => {
-            fmt_func(f, &e.expr);
+            fmt_expr(f, &e.expr);
             *f += "[";
-            fmt_func(f, &e.index);
+            fmt_expr(f, &e.index);
             *f += "]";
         }
         Let(e) => {
             *f += "let _ = ";
-            fmt_func(f, &e.expr);
+            fmt_expr(f, &e.expr);
         }
         Lit(e) => *f += &e.to_token_stream().to_string(),
         Loop(_) => *f += "loop { ... }",
@@ -705,7 +754,7 @@ fn fmt_func(f: &mut String, func: &Expr) {
         }
         Match(_) => *f += "match { ... }",
         MethodCall(e) => {
-            fmt_func(f, &e.receiver);
+            fmt_expr(f, &e.receiver);
             *f += ".";
             *f += &e.method.to_string();
             if let Some(t) = &e.turbofish {
@@ -729,7 +778,7 @@ fn fmt_func(f: &mut String, func: &Expr) {
         }
         Paren(e) => {
             *f += "(";
-            fmt_func(f, &e.expr);
+            fmt_expr(f, &e.expr);
             *f += ")";
         }
         Reference(e) => {
@@ -737,12 +786,12 @@ fn fmt_func(f: &mut String, func: &Expr) {
             if e.mutability.is_some() {
                 *f += "mut ";
             }
-            fmt_func(f, &e.expr);
+            fmt_expr(f, &e.expr);
         }
         Array(e) => {
             *f += "[";
             for pair in e.elems.pairs() {
-                fmt_func(f, &pair.value());
+                fmt_expr(f, &pair.value());
                 if pair.punct().is_some() {
                     *f += ", ";
                 }
@@ -751,9 +800,9 @@ fn fmt_func(f: &mut String, func: &Expr) {
         }
         Repeat(e) => {
             *f += "[";
-            fmt_func(f, &e.expr);
+            fmt_expr(f, &e.expr);
             *f += "; ";
-            fmt_func(f, &e.len);
+            fmt_expr(f, &e.len);
             *f += "]";
         }
         Struct(e) => {
@@ -761,14 +810,14 @@ fn fmt_func(f: &mut String, func: &Expr) {
             *f += "{ ... }";
         }
         Try(e) => {
-            fmt_func(f, &e.expr);
+            fmt_expr(f, &e.expr);
             *f += "?";
         }
         TryBlock(_) => *f += "try { ... }",
         Tuple(e) => {
             *f += "(";
             for pair in e.elems.pairs() {
-                fmt_func(f, &pair.value());
+                fmt_expr(f, &pair.value());
                 if pair.punct().is_some() {
                     *f += ", ";
                 }
@@ -776,23 +825,23 @@ fn fmt_func(f: &mut String, func: &Expr) {
             *f += ")";
         }
         Type(e) => {
-            fmt_func(f, &e.expr);
+            fmt_expr(f, &e.expr);
             *f += ": _";
         }
         Unary(e) => {
             *f += &e.op.to_token_stream().to_string();
-            fmt_func(f, &e.expr);
+            fmt_expr(f, &e.expr);
         }
         Unsafe(_) => *f += "unsafe { ... }",
         While(e) => {
             *f += "while ";
-            fmt_func(f, &e.cond);
+            fmt_expr(f, &e.cond);
             *f += " { ... }";
         }
         Yield(e) => {
             *f += "yield ";
             if let Some(expr) = &e.expr {
-                fmt_func(f, &expr);
+                fmt_expr(f, &expr);
             }
         }
         _ => *f += "_",

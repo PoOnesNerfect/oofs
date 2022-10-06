@@ -1,17 +1,8 @@
-use super::{
-    util::{OpLevel, OpWrapper},
-    write::write,
-};
+use super::write::write;
 use quote::ToTokens;
-use syn::{
-    parse::Parse, Expr, ImplItem, ImplItemMethod, ItemImpl, PathArguments, ReturnType, Type,
-};
+use syn::{parse::Parse, ImplItem, ImplItemMethod, ItemImpl, ReturnType, Type};
 
 pub struct OofImpl {
-    pub pre: Vec<OpWrapper<Expr>>,
-    pub post: Vec<OpWrapper<Expr>>,
-    pub tags: Vec<OpWrapper<Type>>,
-    pub display_owned: OpLevel,
     pub inner: ItemImpl,
 }
 
@@ -19,20 +10,7 @@ impl Parse for OofImpl {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let item_impl: ItemImpl = input.parse()?;
 
-        // for attr in &item_impl.attrs {
-        //     if attr.path.is_ident("oofs") {
-        //         let tokens = &attr.tokens;
-        //         actions.push(syn::parse_quote!(#tokens));
-        //     }
-        // }
-
-        Ok(Self {
-            pre: Vec::new(),
-            post: Vec::new(),
-            tags: Vec::new(),
-            display_owned: OpLevel::Debug,
-            inner: item_impl,
-        })
+        Ok(Self { inner: item_impl })
     }
 }
 
