@@ -1,6 +1,6 @@
 [package]
 name = "oofs"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 authors = ["PoOnesNerfect <jack.y.l.dev@gmail.com>"]
 description = "Error Handler for the Bubble Up Stage"
@@ -21,4 +21,4 @@ debug_strategy_disabled = []
 debug_strategy_full = []
 
 [dependencies]
-oofs_derive = { version = "=0.1.7", path = "../oofs_derive" }
+oofs_derive = { version = "=0.1.8", path = "../oofs_derive" }
