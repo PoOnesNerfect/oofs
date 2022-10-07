@@ -1,16 +1,10 @@
-use oofs::{ensure, oof, oofs, Oof, OofExt, ensure_eq};
+use oofs::{oofs, Oof, OofExt};
 
 // Marker type used for tagging.
 struct RetryTag;
 
 #[oofs]
 fn application() -> Result<(), Oof> {
-    let x = 123;
-    ensure_eq!(x, 321, "something {} {}", 123, "hello world", {
-        tag: [RetryTag],
-        attach: [x, "hello world"],
-    });
-
     if let Err(e) = middlelayer("hello world") {
         // Check if any of internal errors is tagged as `RetryTag`; if so, try again.
         if e.tagged_nested::<RetryTag>() {
