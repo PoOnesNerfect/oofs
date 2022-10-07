@@ -292,47 +292,31 @@ For these cases, you have some options: `oof!(...)`, `wrap_err(_)`, `ensure!(...
 
 - `ensure!(...)`: this is similar to a lot of other libraries with slight differences.
 
-  First parameter is an expression that evaluates to `bool`.
-  If the expression evaluates to `false`, the macro will return `Err(Oof)`.
+  Optionally, you can input custom context message like for `format!(...)`.
 
-  Second parameter is `context(...)`, and is an optional second parameter.
-  You can use this if you want to display your own context message, instead of the default `assertion failed: EXPRESSION at LOCATION`.
-  Inside `context(...)`, you can write as you do for `println!`.
-
-  Other optional parameters are for tagging, attach, and attach_lazy.
+  Also, you can optionally provide tags and attributes wrapped in braces.
 
   ```rust
-  ensure!(
-    false,
-    context("custom context with value {:?}", x),
+  ensure!(false, "custom context with value {:?}", x, {
     tag: [MyTag, OtherTag],
     attach: [&y, "attachment", Instant::now()],
     attach_lazy: [|| serde_json::to_string(&y), || format!("lazy attachment {}", &z)]
-  );
+  });
   ```
 
 - `ensure_eq!(...)`: this is similar to a lot of other libraries with slight differences.
 
-  First two parameters are parameters to be compared.
-  If the parameters are not same, the macro will return `Err(Oof)`.
+  Optionally, you can input custom context message like for `format!(...)`.
 
-  Third parameter is `context(...)`, and is an optional third parameter.
-  You can use this if you want to display your own context message, instead of the default `assertion failed: (left == right) at LOCATION`.
-  Inside `context(...)`, you can write as you do for `println!`.
-
-  Other optional parameters are for tagging, attach, and attach_lazy.
+  Also, you can optionally provide tags and attributes wrapped in braces.
 
   ```rust
-  ensure_eq!(
-    123, 456,
-    context("custom context with value {:?}", x),
+  ensure_eq!(1u8, 2u8, "custom context with value {:?}", x, {
     tag: [MyTag, OtherTag],
     attach: [&y, "attachment", Instant::now()],
     attach_lazy: [|| serde_json::to_string(&y), || format!("lazy attachment {}", &z)]
-  );
+  });
   ```
-
-  Note that all other parameters than the first one are optional.
 
 ## Features
 
