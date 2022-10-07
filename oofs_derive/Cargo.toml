@@ -1,6 +1,6 @@
 [package]
 name = "oofs_derive"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2021"
 authors = ["PoOnesNerfect <jack.y.l.dev@gmail.com>"]
 description = "Error handling library that generates and injects context for you."
