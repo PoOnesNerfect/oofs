@@ -146,14 +146,10 @@ impl<'a> ContextInner<'a> {
     // If it is a variable, then it should not be evaluated.
     fn _path(expr: &'a Expr, depth: usize) -> Self {
         if let Expr::Path(path) = expr {
-            if path.qself.is_none()
-                && path.path.leading_colon.is_none()
-                && path.path.segments.len() == 1
-            {
-                let first = path.path.segments.first().unwrap();
-                if matches!(first.arguments, PathArguments::None) {
+            if path.qself.is_none() {
+                if let Some(ident) = path.path.get_ident() {
                     return Self {
-                        receiver: Receiver::ident(&first.ident),
+                        receiver: Receiver::ident(&ident),
                         agg_index: 0,
                         chain: Vec::with_capacity(depth),
                     };

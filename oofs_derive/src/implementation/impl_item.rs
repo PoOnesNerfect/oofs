@@ -45,7 +45,7 @@ impl ToTokens for OofImpl {
 
         brace_token.surround(tokens, |braces| {
             for item in items {
-                if !return_type_is_result(item) {
+                if !should_impl_oof(item) {
                     item.to_tokens(braces);
                     continue;
                 }
@@ -73,8 +73,14 @@ impl ToTokens for OofImpl {
     }
 }
 
-fn return_type_is_result(item: &ImplItem) -> bool {
+fn should_impl_oof(item: &ImplItem) -> bool {
     if let ImplItem::Method(method) = item {
+        for attr in &method.attrs {
+            if attr.path.is_ident("oofs") {
+                return true;
+            }
+        }
+
         if let ReturnType::Type(_, ty) = &method.sig.output {
             if let Type::Path(path) = ty.as_ref() {
                 return path

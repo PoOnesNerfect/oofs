@@ -8,19 +8,11 @@
 [mit-badge]: https://img.shields.io/badge/license-MIT-blue.svg
 [mit-url]: https://github.com/PoOnesNerfect/oofs/blob/main/LICENSE
 
-Error handler for bubble-up stages.
+**Error handling library that generates and injects context for you.**
 
-This library is not meant to replace `thiserror` or `snafu` when defining source errors, but to replace them during bubble-up stages.
-If you've worked on a project with many layers of function calls, you most likely faced cases where you repeatedly define errors just to refer to its source error, with messages like `failed to do some below action` with passed parameters as additional contexts, for every call at every level.
+This library provides three main features:
 
-This is not only annoying and time-consuming when defining it, but also when maintaining and updating the code.
-I'm not saying this is worthless; it is definitely worth it, because using `anyhow` or `eyre` to just return the error is a nightmare when an issue arises and all you have to go off of is `unexpected end of file`.
-
-If you were tired of this repetitive but necessary error defining, this library might be for you.
-
-**This library provides three main features:**
-
-- Injecting an auto-generated error context to `?` operators with `#[oofs]` attribute.
+- `#[oofs]` attribute that generates and injects context to function calls with `?` operators.
 - Tagging an error for categorized error handling.
 - Attaching custom contexts.
 
@@ -38,11 +30,12 @@ If you were tired of this repetitive but necessary error defining, this library 
     - [About `Oof` Error Struct](#about-oof-error-struct)
     - [About Underscore Methods like `._tag()` and `._attach(_)`](#about-underscore-methods-like-_tag-and-_attach_)
     - [Debugging Non-Copyable Arguments](#debugging-non-copyable-arguments)
+    - [Compatibility with `#[async_trait]`](#compatibility-with-async_trait)
   - [Future Plans](#future-plans)
 
 ## Basic Example 1
 
-Below showcases the auto-generating context.
+Below showcases the context injection.
 
 ```rust
 use oofs::{oofs, Oof};
@@ -224,7 +217,7 @@ fn source() -> Result<(), Oof> {
 This allows you to categorize errors into different tag groups, and handle for them accordingly.
 This gives a much better experience when handling errors compared to matching every enum variant in every nested function calls.
 
-Note that you an also tag an error with multiple different tags.
+Note that you can also tag an error with multiple different tags.
 
 I chose type as tag because types are small, readable and unique. `String` or `usize` can lead to having duplicate values by accident.
 
@@ -234,7 +227,7 @@ At some point, you may find the generated context is not enough.
 After all, it just shows the call that failed, and parameters that were passed to it.
 It will not capture all the other possibe context information.
 
-You an attach your own context information to the error with `_attach` and `_attach_lazy` methods.
+You can attach your own context information to the error with `_attach` and `_attach_lazy` methods.
 
 ```rust
 #[oofs]
@@ -412,6 +405,36 @@ You can change this behavior with features `debug_strategy_disabled` and `debug_
 
 `debug_strategy_disabled` will disable loading values of non-copyable arguments even for debug mode.
 `debug_strategy_full` will enable loading values of non-copyable arguments even for releaes mode.
+
+### Compatibility with `#[async_trait]`
+
+`#[async_trait]` parses and converts `async fn` in traits into `fn -> Box<Future<Output = Result<...>>>`.
+Since `#[oofs]` by default only applies context injection to methods that returns `Result<_, _>`,
+it will not apply injection once `#[async_trait]` is applied.
+
+There are two ways to deal with this:
+
+- Place `#[oofs]` above `#[async_trait]`, so that oofs is applied first, then `#[async_trait]`.
+
+  ```rust
+  #[oofs]
+  #[async_trait]
+  impl Trait for Struct {
+    ...
+  }
+  ```
+
+- In the impl block, place `#[oofs]` above `fn ...`, and this will tell the macro to apply injection regardless.
+  ```rust
+  #[async_trait]
+  #[oofs]
+  impl Trait for Struct {
+    #[oofs]
+    async fn do_something() -> Result<(), _> {
+        ...
+    }
+  }
+  ```
 
 ## Future Plans
 
