@@ -55,6 +55,9 @@ macro_rules! oof {
 
 /// Check that a given expression evaluates to `true`, else return an error.
 ///
+/// First parameter is an expression that evaluates to `bool`.
+/// If the expression evaluates to `false`, the macro will return `Err(Oof)`.
+///
 /// Ex)
 /// ```rust
 /// # use oofs::*;
@@ -66,14 +69,23 @@ macro_rules! oof {
 /// # }
 /// ```
 ///
-/// First parameter is an expression that evaluates to `bool`.
-/// If the expression evaluates to `false`, the macro will return `Err(Oof)`.
+/// Optionally, you can input custom context message like for `format!(...)`.
 ///
-/// Second parameter is `context(...)`, and is an optional second parameter.
-/// You can use this if you want to display your own context message, instead of the default `assertion failed: EXPRESSION at LOCATION`.
-/// Inside `context(...)`, you can write as you do for `println!`.
+/// Ex)
+/// ```rust
+/// # use oofs::*;
+/// # use std::time::Instant;
+/// # #[oofs]
+/// # fn _ex() -> Result<(), Oof> {
+/// let x = 123usize;
+/// let y = "some value";
 ///
-/// Other optional parameters are for tagging, attach, and attach_lazy.
+/// ensure!(false, "custom context with value {:?} and {}", x, y);
+/// # Ok(())
+/// # }
+/// ```
+///
+/// Also, you can provide tags and attachments in braces.
 ///
 /// Ex)
 /// ```rust
@@ -88,34 +100,44 @@ macro_rules! oof {
 /// let y = "some value";
 /// let z = "lazy attachment";
 ///
-/// ensure!(
-///   false,
-///   context("custom context with value {:?}", x),
+/// ensure!(false, {
 ///   tag: [MyTag, OtherTag],
 ///   attach: [&y, "attachment", Instant::now()],
 ///   attach_lazy: [|| format!("context {}", &z)]
-/// );
+/// });
+///
+/// ensure!(false, "custom context with value {:?}", x, {
+///   tag: [MyTag, OtherTag],
+///   attach: [&y, "attachment", Instant::now()],
+///   attach_lazy: [|| format!("context {}", &z)]
+/// });
 /// # Ok(())
 /// # }
 /// ```
 #[macro_export]
 macro_rules! ensure {
-    ($cond:expr, context($($arg:tt)*) $(, $($t:tt)*)?) => {
-        $crate::ensure!(@internal $cond, $crate::oof!($($arg)*), $($($t)*)?);
+    ($cond:expr $(, $($rest:tt)*)?) => {
+        $crate::ensure!(@fmt $cond, (), $($($rest)*)?);
     };
-    ($cond:expr $(, $($t:tt)*)?) => {
-        $crate::ensure!($cond, context("assertion failed: `{}`", stringify!($cond)), $($($t)*)?);
+    (@fmt $cond:expr, (), $({ $($rest:tt)* })?) => {
+        $crate::ensure!(@meta $cond, $crate::oof!("assertion failed: `{}`", stringify!($cond)), $($($rest)*)?);
     };
-    (@internal $cond:expr, $ret:expr, tag: [$($tag:ty),* $(,)?] $(, $($t:tt)*)?) => {
-        $crate::ensure!(@internal $cond, $ret $(.tag::<$tag>())*, $($($t)*)?);
+    (@fmt $cond:expr, ($($fmt:expr,)*), $({ $($rest:tt)* })?) => {
+        $crate::ensure!(@meta $cond, $crate::oof!($($fmt),*), $($($rest)*)?);
     };
-    (@internal $cond:expr, $ret:expr, attach: [$($a:expr),* $(,)?] $(, $($t:tt)*)?) => {
-        $crate::ensure!(@internal $cond, $ret $(.attach($a))*, $($($t)*)?);
+    (@fmt $cond:expr, ($($fmt:expr,)*), $arg:expr $(, $($rest:tt)*)?) => {
+        $crate::ensure!(@fmt $cond, ($($fmt,)* $arg,), $($($rest)*)?);
     };
-    (@internal $cond:expr, $ret:expr, attach_lazy: [$($l:expr),* $(,)?] $(, $($t:tt)*)?) => {
-        $crate::ensure!(@internal $cond, $ret $(.attach_lazy($l))*, $($($t)*)?);
+    (@meta $cond:expr, $ret:expr, tag: [$($tag:ty),* $(,)?] $(, $($rest:tt)*)?) => {
+        $crate::ensure!(@meta $cond, $ret $(.tag::<$tag>())*, $($($rest)*)?);
     };
-    (@internal $cond:expr, $ret:expr, ) => {
+    (@meta $cond:expr, $ret:expr, attach: [$($a:expr),* $(,)?] $(, $($rest:tt)*)?) => {
+        $crate::ensure!(@meta $cond, $ret $(.attach($a))*, $($($rest)*)?);
+    };
+    (@meta $cond:expr, $ret:expr, attach_lazy: [$($l:expr),* $(,)?] $(, $($rest:tt)*)?) => {
+        $crate::ensure!(@meta $cond, $ret $(.attach_lazy($l))*, $($($rest)*)?);
+    };
+    (@meta $cond:expr, $ret:expr, ) => {
         if !$cond {
             return $ret.into_res();
         }
@@ -123,6 +145,9 @@ macro_rules! ensure {
 }
 
 /// Check that two given expressions are same, else return an error.
+///
+/// First two parameters are parameters to be compared.
+/// If the parameters are not same, the macro will return `Err(Oof)`.
 ///
 /// Ex)
 /// ```rust
@@ -135,14 +160,7 @@ macro_rules! ensure {
 /// # }
 /// ```
 ///
-/// First two parameters are parameters to be compared.
-/// If the parameters are not same, the macro will return `Err(Oof)`.
-///
-/// Third parameter is `context(...)`, and is an optional third parameter.
-/// You can use this if you want to display your own context message, instead of the default `assertion failed: (left == right) at LOCATION`.
-/// Inside `context(...)`, you can write as you do for `println!`.
-///
-/// Other optional parameters are for tagging, attach, and attach_lazy.
+/// Optionally, you can input custom context message like for `format!(...)`.
 ///
 /// Ex)
 /// ```rust
@@ -157,37 +175,59 @@ macro_rules! ensure {
 /// let y = "some value";
 /// let z = "lazy attachment";
 ///
-/// ensure_eq!(
-///   1u8, 2u8,
-///   context("custom context with value {:?}", x),
+/// ensure_eq!(1u8, 2u8, "custom context with value {:?}", x);
+/// # Ok(())
+/// # }
+/// ```
+///
+/// Also, you can provide tags and attachments in braces.
+///
+/// Ex)
+/// ```rust
+/// # use oofs::*;
+/// # use std::time::Instant;
+/// # #[oofs]
+/// # fn _ex() -> Result<(), Oof> {
+/// struct MyTag;
+/// struct OtherTag;
+///
+/// let x = 123usize;
+/// let y = "some value";
+/// let z = "lazy attachment";
+///
+/// ensure_eq!(1u8, 2u8, {
 ///   tag: [MyTag, OtherTag],
 ///   attach: [&y, "attachment", Instant::now()],
 ///   attach_lazy: [|| format!("context {}", &z)]
-/// );
+/// });
+///
+/// ensure_eq!(1u8, 2u8, "custom context with value {:?}", x, {
+///   tag: [MyTag, OtherTag],
+///   attach: [&y, "attachment", Instant::now()],
+///   attach_lazy: [|| format!("context {}", &z)]
+/// });
 /// # Ok(())
 /// # }
 /// ```
 #[macro_export]
 macro_rules! ensure_eq {
-    ($l:expr, $r:expr, context($($c:tt)*) $(, $($t:tt)*)?) => {
+    ($l:expr, $r:expr $(, { $($rest:tt)* })?) => {
         match (&$l, &$r) {
             (left, right) => {
-                $crate::ensure!(*left == *right, context($($c)*), $($($t)*)?);
-            }
-        }
-    };
-    ($l:expr, $r:expr $(, $($t:tt)*)?) => {
-        match (&$l, &$r) {
-            (left, right) => {
-                $crate::ensure!(
-                    *left == *right,
-                    context("assertion failed: `(left == right)`"),
+                $crate::ensure!(*left == *right, "assertion failed: `(left == right)`", {
                     attach_lazy: [
                         || format!(" left: {:?}", &*left),
                         || format!("right: {:?}", &*right)
                     ],
-                    $($($t)*)?
-                );
+                    $($($rest)*)?
+                });
+            }
+        }
+    };
+    ($l:expr, $r:expr $(, $($rest:tt)*)?) => {
+        match (&$l, &$r) {
+            (left, right) => {
+                $crate::ensure!(*left == *right $(, $($rest)*)?);
             }
         }
     };
@@ -506,7 +546,7 @@ mod context;
 mod ext;
 mod tsa;
 
-/// Module by attribute `#[oofs]`
+/// Module used by attribute `#[oofs]`
 pub mod __used_by_attribute {
     pub use crate::{builder::*, context::*, tsa::*};
 
