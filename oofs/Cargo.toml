@@ -1,6 +1,6 @@
 [package]
 name = "oofs"
-version = "0.1.13"
+version = "0.1.14"
 edition = "2021"
 authors = ["PoOnesNerfect <jack.y.l.dev@gmail.com>"]
 description = "Error handling library that generates and injects context for you."
@@ -21,4 +21,4 @@ debug_strategy_disabled = []
 debug_strategy_full = []
 
 [dependencies]
-oofs_derive = { version = "=0.1.13", path = "../oofs_derive" }
+oofs_derive = { version = "=0.1.14", path = "../oofs_derive" }
