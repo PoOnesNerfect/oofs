@@ -24,6 +24,7 @@ This library provides three main features:
   - [Tagging Errors](#tagging-errors)
   - [Attaching Custom Contexts](#attaching-custom-contexts)
   - [Returning Custom Errors](#returning-custom-errors)
+  - [Attribute Arguments](#attribute-arguments)
   - [Features](#features)
   - [Notes/Limitations About the Library](#noteslimitations-about-the-library)
     - [About `#[oofs]` Attribute](#about-oofs-attribute)
@@ -298,7 +299,7 @@ For these cases, you have some options: `oof!(...)`, `wrap_err(_)`, `ensure!(...
 
   ```rust
   ensure!(false, "custom context with value {:?}", x, {
-    tag: [MyTag, OtherTag],
+    tags: [MyTag, OtherTag],
     attach: [&y, "attachment", Instant::now()],
     attach_lazy: [|| serde_json::to_string(&y), || format!("lazy attachment {}", &z)]
   });
@@ -312,11 +313,19 @@ For these cases, you have some options: `oof!(...)`, `wrap_err(_)`, `ensure!(...
 
   ```rust
   ensure_eq!(1u8, 2u8, "custom context with value {:?}", x, {
-    tag: [MyTag, OtherTag],
+    tags: [MyTag, OtherTag],
     attach: [&y, "attachment", Instant::now()],
     attach_lazy: [|| serde_json::to_string(&y), || format!("lazy attachment {}", &z)]
   });
   ```
+
+## Attribute Arguments
+
+You can pass arguments to the attribute like `#[oofs(tags(ThisTag, ThatTag))]`.
+
+These arguments will be applied to the entire scope of the attribute.
+
+For details about the attribute arguments, see [documentation](https://docs.rs/oofs/latest/oofs/attr.oofs.html).
 
 ## Features
 
@@ -408,12 +417,14 @@ There are two ways to deal with this:
   }
   ```
 
-- In the impl block, place `#[oofs]` above `fn ...`, and this will tell the macro to apply injection regardless.
+- In the impl block, place `#[oofs(closures, async_blocks)]` above `fn ...`, and `oofs` attr will tell the macro to apply injection regardless,
+  and `closures` and `async_blocks` will tell the macro to apply injection for closures and async blocks, which are disabled by default.
+
   ```rust
   #[async_trait]
   #[oofs]
   impl Trait for Struct {
-    #[oofs]
+    #[oofs(closures, async_blocks)]
     async fn do_something() -> Result<(), _> {
         ...
     }

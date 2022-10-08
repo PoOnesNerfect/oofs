@@ -1,4 +1,4 @@
-use super::write::write;
+use super::props::Properties;
 use proc_macro2::Span;
 use quote::{quote, quote_spanned, ToTokens};
 use syn::{
@@ -9,21 +9,101 @@ use syn::{
     Expr, ExprAwait, ExprCall, ExprField, ExprMethodCall, Ident, Path, PathArguments, ReturnType,
 };
 
-pub fn context<'a>(tokens: &'a mut proc_macro2::TokenStream) -> Context<'a> {
-    Context::new(tokens)
-}
-
 pub struct Context<'a> {
     tokens: &'a mut proc_macro2::TokenStream,
+    props: Properties,
+    depth: usize,
 }
 
 impl<'a> Context<'a> {
-    fn new(tokens: &'a mut proc_macro2::TokenStream) -> Self {
-        Self { tokens }
+    pub fn new(tokens: &'a mut proc_macro2::TokenStream, props: Properties) -> Self {
+        Self {
+            tokens,
+            props,
+            depth: 0,
+        }
     }
 
-    pub fn expr(self, expr: &Expr) {
-        ContextInner::expr(expr).to_tokens(self.tokens);
+    pub fn expr(mut self, expr: &'a Expr) {
+        let inner = self._expr(expr);
+        inner.to_tokens(self.tokens, self.props);
+    }
+
+    fn _expr(&mut self, expr: &'a Expr) -> ContextInner<'a> {
+        match expr {
+            Expr::MethodCall(call) => self._method_call(call),
+            Expr::Call(call) => self._call(call),
+            Expr::Await(expr_await) => self._await(expr_await),
+            Expr::Path(_) => self._path(expr),
+            Expr::Field(_) => self._field(expr),
+            expr => self._other(expr),
+        }
+    }
+
+    fn _method_call(&mut self, _method_call: &'a ExprMethodCall) -> ContextInner<'a> {
+        self.depth += 1;
+
+        let mut this = self._expr(&_method_call.receiver);
+
+        let index = this.chain.len();
+
+        let method = Method::new(index, &mut this.agg_index, _method_call, self.props.clone());
+
+        this.chain.push(method);
+
+        this
+    }
+
+    fn _call(&mut self, _call: &'a ExprCall) -> ContextInner<'a> {
+        ContextInner::call(_call, self.depth, self.props.clone())
+    }
+
+    fn _await(&mut self, _await: &'a ExprAwait) -> ContextInner<'a> {
+        let ExprAwait {
+            base,
+            dot_token,
+            await_token,
+            ..
+        } = _await;
+
+        let mut this = self._expr(base);
+
+        if let Some(method) = this.chain.last_mut() {
+            method.dot_await(dot_token, await_token);
+        } else {
+            this.receiver.dot_await(dot_token, await_token);
+        }
+
+        this
+    }
+
+    // Check if this is a variable ident.
+    // If it is a variable, then it should not be evaluated.
+    fn _path(&mut self, expr: &'a Expr) -> ContextInner<'a> {
+        if let Expr::Path(path) = expr {
+            if path.qself.is_none() {
+                if let Some(ident) = path.path.get_ident() {
+                    return ContextInner::ident(ident, self.depth);
+                }
+            }
+        }
+
+        self._other(expr)
+    }
+
+    fn _field(&mut self, expr: &'a Expr) -> ContextInner<'a> {
+        if let Expr::Field(field) = expr {
+            // if field is of a variable, we don't want to consume it.
+            if matches!(field.base.as_ref(), Expr::Path(_)) {
+                return ContextInner::field(field, self.depth);
+            }
+        }
+
+        self._other(expr)
+    }
+
+    fn _other(&mut self, _other: &'a Expr) -> ContextInner<'a> {
+        ContextInner::arg(_other, self.depth, self.props.clone())
     }
 }
 
@@ -33,8 +113,44 @@ struct ContextInner<'a> {
     chain: Vec<Method<'a>>,
 }
 
-impl<'a> ToTokens for ContextInner<'a> {
-    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+impl<'a> ContextInner<'a> {
+    fn field(field: &'a ExprField, depth: usize) -> Self {
+        Self {
+            receiver: Receiver::field(field),
+            chain: Vec::with_capacity(depth),
+            agg_index: 0,
+        }
+    }
+
+    fn ident(ident: &'a Ident, depth: usize) -> Self {
+        Self {
+            receiver: Receiver::ident(ident),
+            chain: Vec::with_capacity(depth),
+            agg_index: 0,
+        }
+    }
+
+    fn call(expr: &'a ExprCall, depth: usize, props: Properties) -> Self {
+        let mut agg_index = 0;
+
+        ContextInner {
+            receiver: Receiver::call(&mut agg_index, expr, props),
+            agg_index,
+            chain: Vec::with_capacity(depth),
+        }
+    }
+
+    fn arg(expr: &'a Expr, depth: usize, props: Properties) -> Self {
+        let mut agg_index = 0;
+
+        ContextInner {
+            receiver: Receiver::arg(&mut agg_index, expr, props),
+            agg_index,
+            chain: Vec::with_capacity(depth),
+        }
+    }
+
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream, props: Properties) {
         let Self {
             receiver,
             chain,
@@ -71,6 +187,18 @@ impl<'a> ToTokens for ContextInner<'a> {
                     method.write_call(parens);
                 }
 
+                for tag in &props.tags {
+                    parens.extend(quote!(._tag::<#tag>()));
+                }
+
+                for attach in &props.attach {
+                    parens.extend(quote!(._attach(#attach)));
+                }
+
+                for lazy in &props.attach_lazy {
+                    parens.extend(quote!(._attach_lazy(#lazy)));
+                }
+
                 parens
                     .extend(quote_spanned!(span=>, || OofGeneratedContext::new(#receiver.into())));
 
@@ -80,109 +208,6 @@ impl<'a> ToTokens for ContextInner<'a> {
                 }
             });
         });
-    }
-}
-
-impl<'a> ContextInner<'a> {
-    fn expr(expr: &'a Expr) -> Self {
-        let depth = 0;
-
-        Self::_expr(expr, depth)
-    }
-
-    fn _expr(expr: &'a Expr, depth: usize) -> Self {
-        match expr {
-            Expr::MethodCall(call) => Self::_method_call(call, depth),
-            Expr::Call(call) => Self::_call(call, depth),
-            Expr::Await(expr_await) => Self::_await(expr_await, depth),
-            Expr::Path(_) => Self::_path(expr, depth),
-            Expr::Field(_) => Self::_field(expr, depth),
-            expr => Self::_other(expr, depth),
-        }
-    }
-
-    fn _method_call(_method_call: &'a ExprMethodCall, depth: usize) -> Self {
-        let mut this = Self::_expr(&_method_call.receiver, depth + 1);
-
-        let index = this.chain.len();
-
-        let method = Method::new(index, &mut this.agg_index, _method_call);
-
-        this.chain.push(method);
-
-        this
-    }
-
-    fn _call(_call: &'a ExprCall, depth: usize) -> Self {
-        let mut agg_index = 0;
-
-        Self {
-            receiver: Receiver::call(&mut agg_index, _call),
-            agg_index,
-            chain: Vec::with_capacity(depth),
-        }
-    }
-
-    fn _await(_await: &'a ExprAwait, depth: usize) -> Self {
-        let ExprAwait {
-            base,
-            dot_token,
-            await_token,
-            ..
-        } = _await;
-
-        let mut this = Self::_expr(base, depth);
-
-        if let Some(method) = this.chain.last_mut() {
-            method.dot_await(dot_token, await_token);
-        } else {
-            this.receiver.dot_await(dot_token, await_token);
-        }
-
-        this
-    }
-
-    // Check if this is a variable ident.
-    // If it is a variable, then it should not be evaluated.
-    fn _path(expr: &'a Expr, depth: usize) -> Self {
-        if let Expr::Path(path) = expr {
-            if path.qself.is_none() {
-                if let Some(ident) = path.path.get_ident() {
-                    return Self {
-                        receiver: Receiver::ident(&ident),
-                        agg_index: 0,
-                        chain: Vec::with_capacity(depth),
-                    };
-                }
-            }
-        }
-
-        Self::_other(expr, depth)
-    }
-
-    fn _field(expr: &'a Expr, depth: usize) -> Self {
-        if let Expr::Field(field) = expr {
-            // if field is of a variable, we don't want to consume it.
-            if matches!(field.base.as_ref(), Expr::Path(_)) {
-                return Self {
-                    receiver: Receiver::field(&field),
-                    agg_index: 0,
-                    chain: Vec::with_capacity(depth),
-                };
-            }
-        }
-
-        Self::_other(expr, depth)
-    }
-
-    fn _other(_other: &'a Expr, depth: usize) -> Self {
-        let mut agg_index = 0;
-
-        Self {
-            receiver: Receiver::arg(&mut agg_index, _other),
-            agg_index,
-            chain: Vec::with_capacity(depth),
-        }
     }
 }
 
@@ -223,12 +248,12 @@ impl<'a> Receiver<'a> {
         Self::Ident(IdentReceiver::new(ident))
     }
 
-    fn call(agg_index: &mut usize, expr: &'a ExprCall) -> Self {
-        Self::Call(Call::new("__recv", agg_index, expr))
+    fn call(agg_index: &mut usize, expr: &'a ExprCall, props: Properties) -> Self {
+        Self::Call(Call::new("__recv", agg_index, expr, props))
     }
 
-    fn arg(agg_index: &mut usize, expr: &'a Expr) -> Self {
-        Self::Arg(Arg::new("__recv", 0, agg_index, expr))
+    fn arg(agg_index: &mut usize, expr: &'a Expr, props: Properties) -> Self {
+        Self::Arg(Arg::new("__recv", 0, agg_index, expr, props))
     }
 
     fn dot_await(&mut self, dot_token: &'a Dot, await_token: &'a Await) {
@@ -366,18 +391,20 @@ struct Call<'a> {
     args: Vec<(Arg<'a>, Option<&'a Comma>)>,
     dot_await: Option<DotAwait<'a>>,
     expr: &'a ExprCall,
+    props: Properties,
 }
 
 impl<'a> Call<'a> {
-    fn new(prefix: &str, agg_index: &mut usize, expr: &'a ExprCall) -> Self {
+    fn new(prefix: &str, agg_index: &mut usize, expr: &'a ExprCall, props: Properties) -> Self {
         let mut name = String::new();
         fmt_expr(&mut name, &expr.func);
 
         let this = Self {
             name,
             dot_await: None,
-            args: Arg::from_punctuated(prefix, agg_index, &expr.args),
+            args: Arg::from_punctuated(prefix, agg_index, &expr.args, props.clone()),
             expr,
+            props,
         };
 
         this
@@ -401,13 +428,14 @@ impl<'a> Call<'a> {
             args,
             dot_await,
             expr,
+            props,
             ..
         } = self;
         let ExprCall {
             func, paren_token, ..
         } = expr;
 
-        write(tokens).expr(func);
+        props.write(tokens).expr(func);
         paren_token.surround(tokens, |parens| {
             for (arg, punct) in args {
                 arg.write_call(parens);
@@ -446,16 +474,22 @@ struct Method<'a> {
     args: Vec<(Arg<'a>, Option<&'a Comma>)>,
     dot_await: Option<DotAwait<'a>>,
     expr: &'a ExprMethodCall,
+    props: Properties,
 }
 
 impl<'a> Method<'a> {
-    fn new(index: usize, agg_index: &mut usize, expr: &'a ExprMethodCall) -> Self {
+    fn new(
+        index: usize,
+        agg_index: &mut usize,
+        expr: &'a ExprMethodCall,
+        props: Properties,
+    ) -> Self {
         let prefix = format!("__{}", index);
 
         let is_meta = expr.method.to_string().starts_with('_');
 
         let args = (!is_meta)
-            .then(|| Arg::from_punctuated(&prefix, agg_index, &expr.args))
+            .then(|| Arg::from_punctuated(&prefix, agg_index, &expr.args, props.clone()))
             .unwrap_or_default();
 
         let this = Self {
@@ -463,6 +497,7 @@ impl<'a> Method<'a> {
             args,
             dot_await: None,
             expr,
+            props,
         };
 
         this
@@ -487,6 +522,7 @@ impl<'a> Method<'a> {
             args,
             dot_await,
             expr,
+            props,
         } = self;
         let ExprMethodCall {
             dot_token,
@@ -503,7 +539,7 @@ impl<'a> Method<'a> {
         paren_token.surround(tokens, |parens| {
             if *is_meta {
                 for pair in meta_args.pairs() {
-                    write(parens).expr(pair.value());
+                    props.write(parens).expr(pair.value());
                     pair.punct().to_tokens(parens);
                 }
             } else {
@@ -537,31 +573,39 @@ impl<'a> ToTokens for Method<'a> {
 }
 
 struct Arg<'a> {
-    name: String,
+    index: usize,
     arg: Ident,
     arg_type: Ident,
     arg_bin: Ident,
     arg_display_fn: Ident,
     dot_await: Option<DotAwait<'a>>,
     expr: &'a Expr,
+    props: Properties,
 }
 
 impl<'a> Arg<'a> {
-    fn new(prefix: &str, index: usize, agg_index: &mut usize, expr: &'a Expr) -> Arg<'a> {
+    fn new(
+        prefix: &str,
+        index: usize,
+        agg_index: &mut usize,
+        expr: &'a Expr,
+        props: Properties,
+    ) -> Arg<'a> {
         let arg_str = format!("{}_{}", prefix, index);
 
-        let name = agg_index.to_string();
+        let index = *agg_index;
 
         *agg_index += 1;
 
         Arg {
-            name,
+            index,
             arg: Ident::new(&arg_str, expr.span()),
             arg_type: Ident::new(&format!("{arg_str}_type"), expr.span()),
             arg_bin: Ident::new(&format!("{arg_str}_bin"), expr.span()),
             arg_display_fn: Ident::new(&format!("{arg_str}_display_fn"), expr.span()),
             dot_await: None,
             expr,
+            props,
         }
     }
 
@@ -569,13 +613,14 @@ impl<'a> Arg<'a> {
         prefix: &str,
         agg_index: &mut usize,
         puntuated: &'a Punctuated<Expr, Comma>,
+        props: Properties,
     ) -> Vec<(Arg<'a>, Option<&'a Comma>)> {
         puntuated
             .pairs()
             .enumerate()
             .map(|(i, a)| {
                 (
-                    Arg::new(prefix, i, agg_index, a.value()),
+                    Arg::new(prefix, i, agg_index, a.value(), props.clone()),
                     a.punct().map(|p| *p),
                 )
             })
@@ -596,13 +641,14 @@ impl<'a> Arg<'a> {
             arg_bin,
             arg_display_fn,
             expr,
+            props,
             ..
         } = self;
 
         Let(Span::call_site()).to_tokens(tokens);
         arg.to_tokens(tokens);
         Eq(Span::call_site()).to_tokens(tokens);
-        write(tokens).expr(expr);
+        props.write(tokens).expr(expr);
         Semi(Span::call_site()).to_tokens(tokens);
 
         tokens.extend(quote! {
@@ -626,7 +672,7 @@ impl<'a> Arg<'a> {
 impl<'a> ToTokens for Arg<'a> {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let Self {
-            name,
+            index,
             arg_type,
             arg_display_fn,
             ..
@@ -634,7 +680,7 @@ impl<'a> ToTokens for Arg<'a> {
 
         tokens.extend(quote! {
             OofArg::new(
-                #name,
+                #index,
                 #arg_type,
                 #arg_display_fn.call(),
             )

@@ -244,14 +244,14 @@ impl OofIdent {
 
 #[derive(Debug, Clone)]
 pub struct OofArg {
-    name: &'static str,
+    index: usize,
     ty: &'static str,
     display: Option<String>,
 }
 
 impl Display for OofArg {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "${}", self.name)?;
+        write!(f, "${}", self.index)?;
 
         if f.alternate() {
             write!(f, ": {}", self.ty)?;
@@ -266,8 +266,8 @@ impl Display for OofArg {
 }
 
 impl OofArg {
-    pub fn new(name: &'static str, ty: &'static str, display: Option<String>) -> Self {
-        Self { name, ty, display }
+    pub fn new(index: usize, ty: &'static str, display: Option<String>) -> Self {
+        Self { index, ty, display }
     }
 }
 

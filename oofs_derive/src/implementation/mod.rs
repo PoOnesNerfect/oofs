@@ -4,7 +4,10 @@ use syn::{parse::Parse, Attribute, Token};
 mod context;
 mod fn_item;
 mod impl_item;
+mod props;
 mod write;
+
+pub use props::*;
 
 // FEATURES:
 // - pre-check. ex) #[oof(pre(!list.len().is_empty()))], ex) #[oof(pre(!list.len().is_empty(), message = "custom message"))]
@@ -36,6 +39,19 @@ use self::{fn_item::OofFn, impl_item::OofImpl};
 pub enum Oofs {
     Impl(impl_item::OofImpl),
     Fn(fn_item::OofFn),
+}
+
+impl Oofs {
+    pub fn with_args(self, args: PropArgs) -> Self {
+        use Oofs::*;
+
+        let props = args.into();
+
+        match self {
+            Impl(t) => Impl(t.with_props(props)),
+            Fn(t) => Fn(t.with_props(props)),
+        }
+    }
 }
 
 impl Parse for Oofs {

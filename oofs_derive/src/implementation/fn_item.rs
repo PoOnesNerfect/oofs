@@ -1,16 +1,27 @@
-use super::write::write;
+use super::{props, Properties};
 use quote::ToTokens;
 use syn::{parse::Parse, ItemFn};
 
 pub struct OofFn {
     pub inner: ItemFn,
+    pub props: Properties,
+}
+
+impl OofFn {
+    pub fn with_props(mut self, props: Properties) -> Self {
+        self.props.merge(props);
+        self
+    }
 }
 
 impl Parse for OofFn {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let item_fn: ItemFn = input.parse()?;
 
-        Ok(Self { inner: item_fn })
+        Ok(Self {
+            inner: item_fn,
+            props: props(),
+        })
     }
 }
 
@@ -23,12 +34,20 @@ impl ToTokens for OofFn {
             block,
         } = &self.inner;
 
+        let mut props = self.props.clone();
+
         for attr in attrs {
-            attr.to_tokens(tokens);
+            if !props.merge_attr(attr) {
+                attr.to_tokens(tokens);
+            }
         }
         vis.to_tokens(tokens);
         sig.to_tokens(tokens);
 
-        write(tokens).block(block);
+        if props.skip {
+            block.to_tokens(tokens);
+        } else {
+            props.write(tokens).block(block);
+        }
     }
 }

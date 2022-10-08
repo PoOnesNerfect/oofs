@@ -1,16 +1,27 @@
-use super::write::write;
+use super::{props::props, Properties};
 use quote::ToTokens;
 use syn::{parse::Parse, ImplItem, ImplItemMethod, ItemImpl, ReturnType, Type};
 
 pub struct OofImpl {
     pub inner: ItemImpl,
+    pub props: Properties,
+}
+
+impl OofImpl {
+    pub fn with_props(mut self, props: Properties) -> Self {
+        self.props.merge(props);
+        self
+    }
 }
 
 impl Parse for OofImpl {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let item_impl: ItemImpl = input.parse()?;
 
-        Ok(Self { inner: item_impl })
+        Ok(Self {
+            inner: item_impl,
+            props: props(),
+        })
     }
 }
 
@@ -28,9 +39,14 @@ impl ToTokens for OofImpl {
             items,
         } = &self.inner;
 
+        let mut impl_props = self.props.clone();
+
         for attr in attrs {
-            attr.to_tokens(tokens);
+            if !impl_props.merge_attr(&attr) {
+                attr.to_tokens(tokens);
+            }
         }
+
         defaultness.to_tokens(tokens);
         unsafety.to_tokens(tokens);
         impl_token.to_tokens(tokens);
@@ -59,14 +75,18 @@ impl ToTokens for OofImpl {
                         block,
                     } = method;
 
+                    let mut fn_props = impl_props.clone();
                     for attr in attrs {
-                        attr.to_tokens(braces);
+                        if !fn_props.merge_attr(&attr) {
+                            attr.to_tokens(braces);
+                        }
                     }
+
                     vis.to_tokens(braces);
                     defaultness.to_tokens(braces);
                     sig.to_tokens(braces);
 
-                    write(braces).block(block);
+                    fn_props.write(braces).block(block);
                 }
             }
         });
@@ -76,7 +96,14 @@ impl ToTokens for OofImpl {
 fn should_impl_oof(item: &ImplItem) -> bool {
     if let ImplItem::Method(method) = item {
         for attr in &method.attrs {
-            if attr.path.is_ident("oofs") {
+            let mut props = props();
+            let oofs_merged = props.merge_attr(attr);
+
+            if props.skip {
+                return false;
+            }
+
+            if oofs_merged {
                 return true;
             }
         }

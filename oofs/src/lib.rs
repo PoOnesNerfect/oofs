@@ -1,11 +1,8 @@
 use builder::*;
 use context::*;
 use core::fmt::{self, Debug, Display, Write};
-use std::{
-    any::TypeId,
-    collections::HashSet,
-    error::{self, Error},
-};
+use std::error::{self, Error};
+use tags::Tags;
 
 #[cfg(all(feature = "debug_strategy_disabled", feature = "debug_strategy_full"))]
 compile_error!(
@@ -14,7 +11,6 @@ compile_error!(
 
 pub use ext::OofExt;
 
-/// Place above `fn` or `impl` to generate and inject context to `?` operators.
 pub use oofs_derive::oofs;
 
 /// Create a custom error `Oof` similar to `anyhow!`
@@ -101,13 +97,13 @@ macro_rules! oof {
 /// let z = "lazy attachment";
 ///
 /// ensure!(false, {
-///   tag: [MyTag, OtherTag],
+///   tags: [MyTag, OtherTag],
 ///   attach: [&y, "attachment", Instant::now()],
 ///   attach_lazy: [|| format!("context {}", &z)]
 /// });
 ///
 /// ensure!(false, "custom context with value {:?}", x, {
-///   tag: [MyTag, OtherTag],
+///   tags: [MyTag, OtherTag],
 ///   attach: [&y, "attachment", Instant::now()],
 ///   attach_lazy: [|| format!("context {}", &z)]
 /// });
@@ -128,7 +124,7 @@ macro_rules! ensure {
     (@fmt $cond:expr, ($($fmt:expr,)*), $arg:expr $(, $($rest:tt)*)?) => {
         $crate::ensure!(@fmt $cond, ($($fmt,)* $arg,), $($($rest)*)?);
     };
-    (@meta $cond:expr, $ret:expr, tag: [$($tag:ty),* $(,)?] $(, $($rest:tt)*)?) => {
+    (@meta $cond:expr, $ret:expr, tags: [$($tag:ty),* $(,)?] $(, $($rest:tt)*)?) => {
         $crate::ensure!(@meta $cond, $ret $(.tag::<$tag>())*, $($($rest)*)?);
     };
     (@meta $cond:expr, $ret:expr, attach: [$($a:expr),* $(,)?] $(, $($rest:tt)*)?) => {
@@ -196,13 +192,13 @@ macro_rules! ensure {
 /// let z = "lazy attachment";
 ///
 /// ensure_eq!(1u8, 2u8, {
-///   tag: [MyTag, OtherTag],
+///   tags: [MyTag, OtherTag],
 ///   attach: [&y, "attachment", Instant::now()],
 ///   attach_lazy: [|| format!("context {}", &z)]
 /// });
 ///
 /// ensure_eq!(1u8, 2u8, "custom context with value {:?}", x, {
-///   tag: [MyTag, OtherTag],
+///   tags: [MyTag, OtherTag],
 ///   attach: [&y, "attachment", Instant::now()],
 ///   attach_lazy: [|| format!("context {}", &z)]
 /// });
@@ -275,7 +271,7 @@ pub fn wrap_err(e: impl 'static + Send + Sync + Error) -> Oof {
 pub struct Oof {
     source: Option<Box<dyn 'static + Send + Sync + Error>>,
     context: Box<Context>,
-    tags: HashSet<TypeId>,
+    tags: Tags,
     attachments: Vec<String>,
     #[cfg(feature = "location")]
     location: Location,
@@ -388,19 +384,12 @@ impl Oof {
         OofBuilder::new()
     }
 
-    /// Lists all tags as [TypeId](https://doc.rust-lang.org/1.64.0/core/any/struct.TypeId.html).
-    ///
-    /// You can also use [oof!(...)](oof).
-    pub fn tags(&self) -> impl Iterator<Item = &TypeId> {
-        self.tags.iter()
-    }
-
     /// Check if this `Oof` is tagged as given type.
     ///
     /// This method only checks one level deep.
     /// To check all nested errors, use [Oof::tagged_nested](struct.Oof.html#method.tagged_nested).
     pub fn tagged<T: 'static>(&self) -> bool {
-        self.tags.contains(&TypeId::of::<T>())
+        self.tags.tagged::<T>()
     }
 
     /// Check if this `Oof` is tagged in all nested errors.
@@ -443,22 +432,7 @@ impl Oof {
 
     /// Tag `Oof` with type and return Self.
     pub fn tag<T: 'static>(mut self) -> Self {
-        self.tags.insert(TypeId::of::<T>());
-        self
-    }
-
-    /// Tag `Oof` if given closure returns `true` and return Self.
-    pub fn tag_if<Tag, F>(self, f: F) -> Self
-    where
-        Tag: 'static,
-        F: FnOnce(&Box<dyn 'static + Send + Sync + Error>) -> bool,
-    {
-        if let Some(source) = self.source.as_ref() {
-            if f(&source) {
-                return self.tag::<Tag>();
-            }
-        }
-
+        self.tags.tag::<T>();
         self
     }
 
@@ -544,6 +518,7 @@ mod builder;
 mod chain;
 mod context;
 mod ext;
+pub mod tags;
 mod tsa;
 
 /// Module used by attribute `#[oofs]`

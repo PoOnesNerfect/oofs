@@ -1,6 +1,6 @@
-use crate::builder::OofBuilder;
+use crate::{builder::OofBuilder, tags::Tags};
 use core::fmt;
-use std::error::Error;
+use std::{convert::Infallible, error::Error};
 
 /// Helper trait for `Result` and `Option` to add tags and attach extra contexts.
 ///
@@ -22,15 +22,30 @@ use std::error::Error;
 ///     Ok(ret)
 /// }
 /// ```
-pub trait OofExt<T>: Sized {
+pub trait OofExt: Sized {
+    type Return;
+    type Error: 'static + Send + Sync + Error;
+
     /// Tag the given type that can be searched with `.tagged_nested::<T>()` in the higher level call.
-    fn _tag<Tag: 'static>(self) -> Result<T, OofBuilder>;
+    fn _tag<Tag: 'static>(self) -> Result<Self::Return, OofBuilder<Self::Error>>;
 
     /// Tag the given type if the closure evaluates to `true`.
-    fn _tag_if<Tag: 'static, F: FnOnce(&Box<dyn 'static + Send + Sync + Error>) -> bool>(
+    ///
+    /// Closure provides the underlying source error, so that one can optionally use the source error to determine
+    /// to tag the error or not.
+    fn _tag_if<Tag: 'static, F: FnOnce(&Self::Error) -> bool>(
         self,
         f: F,
-    ) -> Result<T, OofBuilder>;
+    ) -> Result<Self::Return, OofBuilder<Self::Error>>;
+
+    /// Tag the given type if the closure evaluates to `true`.
+    ///
+    /// Closure provides the underlying source error, so that one can optionally use the source error to determine
+    /// to tag the error or not.
+    fn _tag_manually<F: FnOnce(&Self::Error, &mut Tags)>(
+        self,
+        f: F,
+    ) -> Result<Self::Return, OofBuilder<Self::Error>>;
 
     /// Attach any value that implements `std::fmt::Debug`.
     ///
@@ -66,7 +81,8 @@ pub trait OofExt<T>: Sized {
     /// Caused by:
     ///     invalid digit found in string
     /// ```
-    fn _attach<D: fmt::Debug>(self, debuggable: D) -> Result<T, OofBuilder>;
+    fn _attach<D: fmt::Debug>(self, debuggable: D)
+        -> Result<Self::Return, OofBuilder<Self::Error>>;
 
     /// Lazily load and attach any value that implements `ToString`.
     ///
@@ -99,15 +115,21 @@ pub trait OofExt<T>: Sized {
     /// Caused by:
     ///     invalid digit found in string
     /// ```
-    fn _attach_lazy<D: ToString, F: FnOnce() -> D>(self, f: F) -> Result<T, OofBuilder>;
+    fn _attach_lazy<D: ToString, F: FnOnce() -> D>(
+        self,
+        f: F,
+    ) -> Result<Self::Return, OofBuilder<Self::Error>>;
 }
 
-impl<T, E> OofExt<T> for Result<T, E>
+impl<T, E> OofExt for Result<T, E>
 where
     E: 'static + Send + Sync + Error,
 {
+    type Return = T;
+    type Error = E;
+
     #[cfg_attr(feature = "location", track_caller)]
-    fn _tag<Tag: 'static>(self) -> Result<T, OofBuilder> {
+    fn _tag<Tag: 'static>(self) -> Result<Self::Return, OofBuilder<Self::Error>> {
         match self {
             Ok(t) => Ok(t),
             Err(e) => Err(OofBuilder::new().with_source(e).with_tag::<Tag>()),
@@ -115,10 +137,10 @@ where
     }
 
     #[cfg_attr(feature = "location", track_caller)]
-    fn _tag_if<Tag: 'static, F: FnOnce(&Box<dyn 'static + Send + Sync + Error>) -> bool>(
+    fn _tag_if<Tag: 'static, F: FnOnce(&Self::Error) -> bool>(
         self,
         f: F,
-    ) -> Result<T, OofBuilder> {
+    ) -> Result<Self::Return, OofBuilder<Self::Error>> {
         match self {
             Ok(t) => Ok(t),
             Err(e) => Err(OofBuilder::new().with_source(e).with_tag_if::<Tag, _>(f)),
@@ -126,7 +148,21 @@ where
     }
 
     #[cfg_attr(feature = "location", track_caller)]
-    fn _attach<D: fmt::Debug>(self, debuggable: D) -> Result<T, OofBuilder> {
+    fn _tag_manually<F: FnOnce(&Self::Error, &mut Tags)>(
+        self,
+        f: F,
+    ) -> Result<Self::Return, OofBuilder<Self::Error>> {
+        match self {
+            Ok(t) => Ok(t),
+            Err(e) => Err(OofBuilder::new().with_source(e).with_tag_manually(f)),
+        }
+    }
+
+    #[cfg_attr(feature = "location", track_caller)]
+    fn _attach<D: fmt::Debug>(
+        self,
+        debuggable: D,
+    ) -> Result<Self::Return, OofBuilder<Self::Error>> {
         match self {
             Ok(t) => Ok(t),
             Err(e) => Err(OofBuilder::new().with_source(e).with_attachment(debuggable)),
@@ -134,7 +170,10 @@ where
     }
 
     #[cfg_attr(feature = "location", track_caller)]
-    fn _attach_lazy<D: ToString, F: FnOnce() -> D>(self, f: F) -> Result<T, OofBuilder> {
+    fn _attach_lazy<D: ToString, F: FnOnce() -> D>(
+        self,
+        f: F,
+    ) -> Result<Self::Return, OofBuilder<Self::Error>> {
         match self {
             Ok(t) => Ok(t),
             Err(e) => Err(OofBuilder::new().with_source(e).with_attachment_lazy(f)),
@@ -142,7 +181,10 @@ where
     }
 }
 
-impl<T> OofExt<T> for Option<T> {
+impl<T> OofExt for Option<T> {
+    type Return = T;
+    type Error = Infallible;
+
     #[cfg_attr(feature = "location", track_caller)]
     fn _tag<Tag: 'static>(self) -> Result<T, OofBuilder> {
         match self {
@@ -152,13 +194,21 @@ impl<T> OofExt<T> for Option<T> {
     }
 
     #[cfg_attr(feature = "location", track_caller)]
-    fn _tag_if<Tag: 'static, F: FnOnce(&Box<dyn 'static + Send + Sync + Error>) -> bool>(
-        self,
-        f: F,
-    ) -> Result<T, OofBuilder> {
+    fn _tag_if<Tag: 'static, F: FnOnce(&Self::Error) -> bool>(self, f: F) -> Result<T, OofBuilder> {
         match self {
             Some(t) => Ok(t),
             None => Err(OofBuilder::new().with_tag_if::<Tag, _>(f)),
+        }
+    }
+
+    #[cfg_attr(feature = "location", track_caller)]
+    fn _tag_manually<F: FnOnce(&Self::Error, &mut Tags)>(
+        self,
+        f: F,
+    ) -> Result<Self::Return, OofBuilder<Self::Error>> {
+        match self {
+            Some(t) => Ok(t),
+            None => Err(OofBuilder::new().with_tag_manually(f)),
         }
     }
 

@@ -1,42 +1,39 @@
-use super::context::context;
+use super::props::Properties;
 use quote::ToTokens;
 use syn::{token::Semi, *};
 
-pub fn write<'a>(tokens: &'a mut proc_macro2::TokenStream) -> Writer<'a> {
-    Writer::new(tokens)
-}
-
 pub struct Writer<'a> {
     tokens: &'a mut proc_macro2::TokenStream,
+    props: Properties,
 }
 
 impl<'a> Writer<'a> {
-    fn new(tokens: &'a mut proc_macro2::TokenStream) -> Self {
-        Self { tokens }
+    pub fn new(tokens: &'a mut proc_macro2::TokenStream, props: Properties) -> Self {
+        Self { tokens, props }
     }
 
     pub fn block(self, block: &Block) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
 
         block.brace_token.surround(tokens, |braced| {
-            write(braced).stmts(&block.stmts);
+            props.write(braced).stmts(&block.stmts);
         });
     }
 
     fn stmts(self, stmts: &Vec<Stmt>) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         for stmt in stmts {
             match stmt {
-                Stmt::Local(local) => write(tokens).local(local),
-                Stmt::Item(item) => write(tokens).item(item),
-                Stmt::Semi(expr, semi) => write(tokens).semi(expr, semi),
-                Stmt::Expr(expr) => write(tokens).expr(expr),
+                Stmt::Local(local) => props.write(tokens).local(local),
+                Stmt::Item(item) => props.write(tokens).item(item),
+                Stmt::Semi(expr, semi) => props.write(tokens).semi(expr, semi),
+                Stmt::Expr(expr) => props.write(tokens).expr(expr),
             }
         }
     }
 
     fn local(self, local: &Local) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let Local {
             attrs,
             let_token,
@@ -53,7 +50,7 @@ impl<'a> Writer<'a> {
 
         if let Some((eq, expr)) = init {
             eq.to_tokens(tokens);
-            write(tokens).expr(expr);
+            props.write(tokens).expr(expr);
         }
 
         semi_token.to_tokens(tokens);
@@ -64,8 +61,9 @@ impl<'a> Writer<'a> {
     }
 
     fn semi(self, expr: &Expr, semi: &Semi) {
-        write(self.tokens).expr(expr);
-        semi.to_tokens(self.tokens);
+        let Self { tokens, props } = self;
+        props.write(tokens).expr(expr);
+        semi.to_tokens(tokens);
     }
 
     pub fn expr(self, expr: &Expr) {
@@ -76,6 +74,7 @@ impl<'a> Writer<'a> {
             Expr::Array(_array) => self._array(_array),
             Expr::Assign(_assign) => self._assign(_assign),
             Expr::AssignOp(_assign_op) => self._assign_op(_assign_op),
+            Expr::Async(_async) => self._async(_async),
             Expr::Await(_await) => self._await(_await),
             Expr::Binary(_binary) => self._binary(_binary),
             Expr::Block(_block) => self._block(_block),
@@ -83,6 +82,7 @@ impl<'a> Writer<'a> {
             Expr::Break(_break) => self._break(_break),
             Expr::Call(_call) => self._call(_call),
             Expr::Cast(_cast) => self._cast(_cast),
+            Expr::Closure(_closure) => self._closure(_closure),
             Expr::Field(_field) => self._field(_field),
             Expr::ForLoop(_for_loop) => self._for_loop(_for_loop),
             Expr::Group(_group) => self._group(_group),
@@ -104,13 +104,13 @@ impl<'a> Writer<'a> {
             Expr::While(_while) => self._while(_while),
             Expr::Yield(_yield) => self._yield(_yield),
             // unhandled cases:
-            // async blocks, closures, continue, literals, macros, path, verbatim
+            // continue, literals, macros, path, verbatim
             expr => expr.to_tokens(self.tokens),
         }
     }
 
     fn _try(self, _try: &ExprTry) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprTry {
             attrs,
             expr,
@@ -121,13 +121,13 @@ impl<'a> Writer<'a> {
             attr.to_tokens(tokens);
         }
 
-        context(tokens).expr(expr);
+        props.context(tokens).expr(expr);
 
         question_token.to_tokens(tokens);
     }
 
     fn _return(self, _return: &ExprReturn) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprReturn {
             attrs,
             return_token,
@@ -140,12 +140,12 @@ impl<'a> Writer<'a> {
         return_token.to_tokens(tokens);
 
         if let Some(expr) = expr {
-            write(tokens).expr(expr);
+            props.write(tokens).expr(expr);
         }
     }
 
     fn _array(self, _array: &ExprArray) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprArray {
             attrs,
             bracket_token,
@@ -158,14 +158,14 @@ impl<'a> Writer<'a> {
 
         bracket_token.surround(tokens, |bracket| {
             for pair in elems.pairs() {
-                write(bracket).expr(pair.value());
+                props.write(bracket).expr(pair.value());
                 pair.punct().to_tokens(bracket);
             }
         });
     }
 
     fn _assign(self, _assign: &ExprAssign) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprAssign {
             attrs,
             left,
@@ -177,13 +177,13 @@ impl<'a> Writer<'a> {
             attr.to_tokens(tokens);
         }
 
-        write(tokens).expr(left);
+        props.write(tokens).expr(left);
         eq_token.to_tokens(tokens);
-        write(tokens).expr(right);
+        props.write(tokens).expr(right);
     }
 
     fn _assign_op(self, _assign_op: &ExprAssignOp) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprAssignOp {
             attrs,
             left,
@@ -195,13 +195,35 @@ impl<'a> Writer<'a> {
             attr.to_tokens(tokens);
         }
 
-        write(tokens).expr(left);
+        props.write(tokens).expr(left);
         op.to_tokens(tokens);
-        write(tokens).expr(right);
+        props.write(tokens).expr(right);
+    }
+
+    fn _async(self, _async: &ExprAsync) {
+        let Self { tokens, props } = self;
+        let ExprAsync {
+            attrs,
+            async_token,
+            capture,
+            block,
+        } = _async;
+
+        for attr in attrs {
+            attr.to_tokens(tokens);
+        }
+        async_token.to_tokens(tokens);
+        capture.to_tokens(tokens);
+
+        if props.async_blocks {
+            props.write(tokens).block(block);
+        } else {
+            block.to_tokens(tokens);
+        }
     }
 
     fn _await(self, _await: &ExprAwait) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprAwait {
             attrs,
             base,
@@ -212,13 +234,13 @@ impl<'a> Writer<'a> {
         for attr in attrs {
             attr.to_tokens(tokens);
         }
-        write(tokens).expr(base);
+        props.write(tokens).expr(base);
         dot_token.to_tokens(tokens);
         await_token.to_tokens(tokens);
     }
 
     fn _binary(self, _binary: &ExprBinary) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprBinary {
             attrs,
             left,
@@ -229,13 +251,13 @@ impl<'a> Writer<'a> {
         for attr in attrs {
             attr.to_tokens(tokens);
         }
-        write(tokens).expr(left);
+        props.write(tokens).expr(left);
         op.to_tokens(tokens);
-        write(tokens).expr(right);
+        props.write(tokens).expr(right);
     }
 
     fn _block(self, _block: &ExprBlock) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprBlock {
             attrs,
             label,
@@ -246,11 +268,11 @@ impl<'a> Writer<'a> {
             attr.to_tokens(tokens);
         }
         label.to_tokens(tokens);
-        write(tokens).block(block);
+        props.write(tokens).block(block);
     }
 
     fn _box(self, _box: &ExprBox) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprBox {
             attrs,
             box_token,
@@ -261,11 +283,11 @@ impl<'a> Writer<'a> {
             attr.to_tokens(tokens);
         }
         box_token.to_tokens(tokens);
-        write(tokens).expr(expr);
+        props.write(tokens).expr(expr);
     }
 
     fn _break(self, _break: &ExprBreak) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprBreak {
             attrs,
             break_token,
@@ -279,12 +301,12 @@ impl<'a> Writer<'a> {
         break_token.to_tokens(tokens);
         label.to_tokens(tokens);
         if let Some(expr) = expr {
-            write(tokens).expr(expr);
+            props.write(tokens).expr(expr);
         }
     }
 
     fn _call(self, _call: &ExprCall) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprCall {
             attrs,
             func,
@@ -295,17 +317,17 @@ impl<'a> Writer<'a> {
         for attr in attrs {
             attr.to_tokens(tokens);
         }
-        write(tokens).expr(func);
+        props.write(tokens).expr(func);
         paren_token.surround(tokens, |parens| {
             for pair in args.pairs() {
-                write(parens).expr(pair.value());
+                props.write(parens).expr(pair.value());
                 pair.punct().to_tokens(parens);
             }
         });
     }
 
     fn _cast(self, _cast: &ExprCast) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprCast {
             attrs,
             expr,
@@ -316,13 +338,45 @@ impl<'a> Writer<'a> {
         for attr in attrs {
             attr.to_tokens(tokens);
         }
-        write(tokens).expr(expr);
+        props.write(tokens).expr(expr);
         as_token.to_tokens(tokens);
         ty.to_tokens(tokens);
     }
 
+    fn _closure(self, _closure: &ExprClosure) {
+        let Self { tokens, props } = self;
+        let ExprClosure {
+            attrs,
+            movability,
+            asyncness,
+            capture,
+            or1_token,
+            inputs,
+            or2_token,
+            output,
+            body,
+        } = _closure;
+
+        for attr in attrs {
+            attr.to_tokens(tokens);
+        }
+        movability.to_tokens(tokens);
+        asyncness.to_tokens(tokens);
+        capture.to_tokens(tokens);
+        or1_token.to_tokens(tokens);
+        inputs.to_tokens(tokens);
+        or2_token.to_tokens(tokens);
+        output.to_tokens(tokens);
+
+        if props.closures {
+            props.write(tokens).expr(body);
+        } else {
+            body.to_tokens(tokens);
+        }
+    }
+
     fn _field(self, _field: &ExprField) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprField {
             attrs,
             base,
@@ -333,13 +387,13 @@ impl<'a> Writer<'a> {
         for attr in attrs {
             attr.to_tokens(tokens);
         }
-        write(tokens).expr(base);
+        props.write(tokens).expr(base);
         dot_token.to_tokens(tokens);
         member.to_tokens(tokens);
     }
 
     fn _for_loop(self, _for_loop: &ExprForLoop) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprForLoop {
             attrs,
             label,
@@ -357,12 +411,12 @@ impl<'a> Writer<'a> {
         for_token.to_tokens(tokens);
         pat.to_tokens(tokens);
         in_token.to_tokens(tokens);
-        write(tokens).expr(expr);
-        write(tokens).block(body);
+        props.write(tokens).expr(expr);
+        props.write(tokens).block(body);
     }
 
     fn _group(self, _group: &ExprGroup) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprGroup {
             attrs,
             group_token,
@@ -373,12 +427,12 @@ impl<'a> Writer<'a> {
             attr.to_tokens(tokens);
         }
         group_token.surround(tokens, |grouped| {
-            write(grouped).expr(expr);
+            props.write(grouped).expr(expr);
         });
     }
 
     fn _if(self, _if: &ExprIf) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprIf {
             attrs,
             if_token,
@@ -391,16 +445,16 @@ impl<'a> Writer<'a> {
             attr.to_tokens(tokens);
         }
         if_token.to_tokens(tokens);
-        write(tokens).expr(cond);
-        write(tokens).block(then_branch);
+        props.write(tokens).expr(cond);
+        props.write(tokens).block(then_branch);
         if let Some((else_token, expr)) = else_branch {
             else_token.to_tokens(tokens);
-            write(tokens).expr(expr);
+            props.write(tokens).expr(expr);
         }
     }
 
     fn _index(self, _index: &ExprIndex) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprIndex {
             attrs,
             expr,
@@ -411,14 +465,14 @@ impl<'a> Writer<'a> {
         for attr in attrs {
             attr.to_tokens(tokens);
         }
-        write(tokens).expr(expr);
+        props.write(tokens).expr(expr);
         bracket_token.surround(tokens, |bracket| {
-            write(bracket).expr(index);
+            props.write(bracket).expr(index);
         })
     }
 
     fn _let(self, _let: &ExprLet) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprLet {
             attrs,
             let_token,
@@ -433,11 +487,11 @@ impl<'a> Writer<'a> {
         let_token.to_tokens(tokens);
         pat.to_tokens(tokens);
         eq_token.to_tokens(tokens);
-        write(tokens).expr(expr);
+        props.write(tokens).expr(expr);
     }
 
     fn _loop(self, _loop: &ExprLoop) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprLoop {
             attrs,
             label,
@@ -450,11 +504,11 @@ impl<'a> Writer<'a> {
         }
         label.to_tokens(tokens);
         loop_token.to_tokens(tokens);
-        write(tokens).block(body);
+        props.write(tokens).block(body);
     }
 
     fn _match(self, _match: &ExprMatch) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprMatch {
             attrs,
             match_token,
@@ -467,7 +521,7 @@ impl<'a> Writer<'a> {
             attr.to_tokens(tokens);
         }
         match_token.to_tokens(tokens);
-        write(tokens).expr(expr);
+        props.write(tokens).expr(expr);
         brace_token.surround(tokens, |braces| {
             for arm in arms {
                 let Arm {
@@ -485,17 +539,17 @@ impl<'a> Writer<'a> {
                 pat.to_tokens(braces);
                 if let Some((if_token, expr)) = guard {
                     if_token.to_tokens(braces);
-                    write(braces).expr(expr);
+                    props.write(braces).expr(expr);
                 }
                 fat_arrow_token.to_tokens(braces);
-                write(braces).expr(body);
+                props.write(braces).expr(body);
                 comma.to_tokens(braces);
             }
         });
     }
 
     fn _method_call(self, _method_call: &ExprMethodCall) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprMethodCall {
             attrs,
             receiver,
@@ -509,20 +563,20 @@ impl<'a> Writer<'a> {
         for attr in attrs {
             attr.to_tokens(tokens);
         }
-        write(tokens).expr(receiver);
+        props.write(tokens).expr(receiver);
         dot_token.to_tokens(tokens);
         method.to_tokens(tokens);
         turbofish.to_tokens(tokens);
         paren_token.surround(tokens, |parens| {
             for pair in args.pairs() {
-                write(parens).expr(pair.value());
+                props.write(parens).expr(pair.value());
                 pair.punct().to_tokens(parens);
             }
         });
     }
 
     fn _paren(self, _paren: &ExprParen) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprParen {
             attrs,
             paren_token,
@@ -533,12 +587,12 @@ impl<'a> Writer<'a> {
             attr.to_tokens(tokens);
         }
         paren_token.surround(tokens, |parens| {
-            write(parens).expr(expr);
+            props.write(parens).expr(expr);
         });
     }
 
     fn _range(self, _range: &ExprRange) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprRange {
             attrs,
             from,
@@ -550,16 +604,16 @@ impl<'a> Writer<'a> {
             attr.to_tokens(tokens);
         }
         if let Some(from) = from {
-            write(tokens).expr(from);
+            props.write(tokens).expr(from);
         }
         limits.to_tokens(tokens);
         if let Some(to) = to {
-            write(tokens).expr(to);
+            props.write(tokens).expr(to);
         }
     }
 
     fn _reference(self, _reference: &ExprReference) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprReference {
             attrs,
             and_token,
@@ -573,11 +627,11 @@ impl<'a> Writer<'a> {
         }
         and_token.to_tokens(tokens);
         mutability.to_tokens(tokens);
-        write(tokens).expr(expr);
+        props.write(tokens).expr(expr);
     }
 
     fn _repeat(self, _repeat: &ExprRepeat) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprRepeat {
             attrs,
             bracket_token,
@@ -590,14 +644,14 @@ impl<'a> Writer<'a> {
             attr.to_tokens(tokens);
         }
         bracket_token.surround(tokens, |bracket| {
-            write(bracket).expr(expr);
+            props.write(bracket).expr(expr);
             semi_token.to_tokens(bracket);
-            write(bracket).expr(len);
+            props.write(bracket).expr(len);
         });
     }
 
     fn _struct(self, _struct: &ExprStruct) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprStruct {
             attrs,
             path,
@@ -625,19 +679,19 @@ impl<'a> Writer<'a> {
                 }
                 member.to_tokens(braced);
                 colon_token.to_tokens(braced);
-                write(braced).expr(expr);
+                props.write(braced).expr(expr);
 
                 pair.punct().to_tokens(braced);
             }
             dot2_token.to_tokens(braced);
             if let Some(rest) = rest {
-                write(braced).expr(rest);
+                props.write(braced).expr(rest);
             }
         });
     }
 
     fn _try_block(self, _try_block: &ExprTryBlock) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprTryBlock {
             attrs,
             try_token,
@@ -648,11 +702,11 @@ impl<'a> Writer<'a> {
             attr.to_tokens(tokens);
         }
         try_token.to_tokens(tokens);
-        write(tokens).block(block);
+        props.write(tokens).block(block);
     }
 
     fn _tuple(self, _tuple: &ExprTuple) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprTuple {
             attrs,
             paren_token,
@@ -664,14 +718,14 @@ impl<'a> Writer<'a> {
         }
         paren_token.surround(tokens, |parens| {
             for elem in elems.pairs() {
-                write(parens).expr(elem.value());
+                props.write(parens).expr(elem.value());
                 elem.punct().to_tokens(parens);
             }
         });
     }
 
     fn _type(self, _type: &ExprType) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprType {
             attrs,
             expr,
@@ -682,24 +736,24 @@ impl<'a> Writer<'a> {
         for attr in attrs {
             attr.to_tokens(tokens);
         }
-        write(tokens).expr(expr);
+        props.write(tokens).expr(expr);
         colon_token.to_tokens(tokens);
         ty.to_tokens(tokens);
     }
 
     fn _unary(self, _unary: &ExprUnary) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprUnary { attrs, op, expr } = _unary;
 
         for attr in attrs {
             attr.to_tokens(tokens);
         }
         op.to_tokens(tokens);
-        write(tokens).expr(expr);
+        props.write(tokens).expr(expr);
     }
 
     fn _unsafe(self, _unsafe: &ExprUnsafe) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprUnsafe {
             attrs,
             unsafe_token,
@@ -710,11 +764,11 @@ impl<'a> Writer<'a> {
             attr.to_tokens(tokens);
         }
         unsafe_token.to_tokens(tokens);
-        write(tokens).block(block);
+        props.write(tokens).block(block);
     }
 
     fn _while(self, _while: &ExprWhile) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprWhile {
             attrs,
             label,
@@ -728,12 +782,12 @@ impl<'a> Writer<'a> {
         }
         label.to_tokens(tokens);
         while_token.to_tokens(tokens);
-        write(tokens).expr(cond);
-        write(tokens).block(body);
+        props.write(tokens).expr(cond);
+        props.write(tokens).block(body);
     }
 
     fn _yield(self, _yield: &ExprYield) {
-        let Self { tokens, .. } = self;
+        let Self { tokens, props } = self;
         let ExprYield {
             attrs,
             yield_token,
@@ -745,12 +799,12 @@ impl<'a> Writer<'a> {
         }
         yield_token.to_tokens(tokens);
         if let Some(expr) = expr {
-            write(tokens).expr(expr);
+            props.write(tokens).expr(expr);
         }
     }
 }
 
-fn is_generic_ok(expr: &Expr) -> bool {
+fn _is_generic_ok(expr: &Expr) -> bool {
     if let Expr::Call(call) = expr {
         if let Expr::Path(path) = call.func.as_ref() {
             return path

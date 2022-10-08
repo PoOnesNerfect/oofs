@@ -22,3 +22,6 @@ syn = { version = "1.0", features = ["full"] }
 quote = "1.0"
 proc-macro2 = { version = "1.0" }
 proc-macro-error = { version = "1.0" }
+
+[dev-dependencies]
+oofs = { version = "=0.1.13", path = "../oofs" }

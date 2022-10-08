@@ -1,5 +1,5 @@
 [workspace]
-members = ["oofs", "oofs_derive"]
+members = ["oofs_derive", "oofs"]
 
 [workspace.package]
 edition = "2021"
