@@ -2,26 +2,26 @@ use super::{context::Context, write::Writer};
 use proc_macro_error::abort;
 use std::ops::{Deref, DerefMut};
 use syn::{
-    parenthesized, parse::Parse, parse_quote, punctuated::Punctuated, Attribute, Expr, Ident,
-    Token, Type,
+    parenthesized, parse::Parse, parse_quote, punctuated::Punctuated, token::Paren, Attribute,
+    Expr, Ident, LitBool, Token, Type,
 };
 
-pub fn props() -> Properties {
-    Properties::default()
+pub fn props() -> Props {
+    Props::default()
 }
 
 #[derive(Clone)]
-pub struct Properties {
+pub struct Props {
     pub args: PropArgs,
 }
 
-impl From<PropArgs> for Properties {
+impl From<PropArgs> for Props {
     fn from(args: PropArgs) -> Self {
         Self { args }
     }
 }
 
-impl Deref for Properties {
+impl Deref for Props {
     type Target = PropArgs;
 
     fn deref(&self) -> &Self::Target {
@@ -29,13 +29,13 @@ impl Deref for Properties {
     }
 }
 
-impl DerefMut for Properties {
+impl DerefMut for Props {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.args
     }
 }
 
-impl Default for Properties {
+impl Default for Props {
     fn default() -> Self {
         Self {
             args: Default::default(),
@@ -43,16 +43,16 @@ impl Default for Properties {
     }
 }
 
-impl Properties {
-    pub fn write<'a>(&self, tokens: &'a mut proc_macro2::TokenStream) -> Writer<'a> {
-        Writer::new(tokens, self.clone())
+impl Props {
+    pub fn write<'a>(&'a self, tokens: &'a mut proc_macro2::TokenStream) -> Writer<'a> {
+        Writer::new(tokens, self)
     }
 
-    pub fn context<'a>(&self, tokens: &'a mut proc_macro2::TokenStream) -> Context<'a> {
-        Context::new(tokens, self.clone())
+    pub fn context<'a>(&'a self, tokens: &'a mut proc_macro2::TokenStream) -> Context<'a> {
+        Context::new(tokens, self)
     }
 
-    pub fn merge(&mut self, other: Properties) {
+    pub fn merge(&mut self, other: Props) {
         self.args.merge(other.args);
     }
 
@@ -70,7 +70,7 @@ impl Properties {
     }
 }
 
-impl Parse for Properties {
+impl Parse for Props {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         if input.is_empty() {
             return Ok(Self::default());
@@ -90,9 +90,10 @@ pub struct PropArgs {
     pub closures: bool,
     pub async_blocks: bool,
     pub skip: bool,
-    pub tags: Vec<Type>,
+    pub tag: Vec<Type>,
     pub attach: Vec<Expr>,
     pub attach_lazy: Vec<Expr>,
+    pub skip_debug: Vec<Expr>,
 }
 
 impl PropArgs {
@@ -100,9 +101,10 @@ impl PropArgs {
         self.closures |= other.closures;
         self.async_blocks |= other.async_blocks;
         self.skip |= other.skip;
-        self.tags.extend(other.tags);
+        self.tag.extend(other.tag);
         self.attach.extend(other.attach);
         self.attach_lazy.extend(other.attach_lazy);
+        self.skip_debug.extend(other.skip_debug);
     }
 }
 
@@ -112,28 +114,30 @@ impl Default for PropArgs {
             closures: false,
             async_blocks: false,
             skip: false,
-            tags: Vec::new(),
+            tag: Vec::new(),
             attach: Vec::new(),
             attach_lazy: Vec::new(),
+            skip_debug: Vec::new(),
         }
     }
 }
 
 impl Parse for PropArgs {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let parsed: Punctuated<PropArg, Token!(,)> = Punctuated::parse_terminated(input)?;
+        let parsed: Punctuated<Arg, Token!(,)> = Punctuated::parse_terminated(input)?;
 
         let mut args = PropArgs::default();
 
         for arg in parsed {
-            use PropArg::*;
+            use Arg::*;
             match arg {
-                Closures => args.closures = true,
-                AsyncBlocks => args.async_blocks = true,
-                Skip => args.skip = true,
-                Tags(tags) => args.tags = tags,
+                Closures(b) => args.closures = b,
+                AsyncBlocks(b) => args.async_blocks = b,
+                Skip(b) => args.skip = b,
+                Tag(tag) => args.tag = tag,
                 Attach(attach) => args.attach = attach,
                 AttachLazy(attach_lazy) => args.attach_lazy = attach_lazy,
+                SkipDebug(skip_debug) => args.skip_debug = skip_debug,
             }
         }
 
@@ -142,50 +146,61 @@ impl Parse for PropArgs {
 }
 
 #[derive(Clone)]
-pub enum PropArg {
-    Closures,
-    AsyncBlocks,
-    Skip,
-    Tags(Vec<Type>),
+enum Arg {
+    Closures(bool),
+    AsyncBlocks(bool),
+    Skip(bool),
+    Tag(Vec<Type>),
     Attach(Vec<Expr>),
     AttachLazy(Vec<Expr>),
+    SkipDebug(Vec<Expr>),
 }
 
-impl Parse for PropArg {
+impl Parse for Arg {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let ident: Ident = input.parse()?;
 
         let arg = if ident == "closures" {
-            Self::Closures
+            Self::Closures(extract_bool(input)?)
         } else if ident == "async_blocks" {
-            Self::AsyncBlocks
+            Self::AsyncBlocks(extract_bool(input)?)
         } else if ident == "skip" {
-            Self::Skip
-        } else if ident == "tags" {
-            let content;
-            parenthesized!(content in input);
-
-            let tags: Punctuated<Type, Token!(,)> = Punctuated::parse_terminated(&content)?;
-
-            Self::Tags(tags.into_iter().collect())
+            Self::Skip(extract_bool(input)?)
+        } else if ident == "tag" {
+            Self::Tag(extract_vec(input)?)
         } else if ident == "attach" {
-            let content;
-            parenthesized!(content in input);
-
-            let attach: Punctuated<Expr, Token!(,)> = Punctuated::parse_terminated(&content)?;
-
-            Self::Attach(attach.into_iter().collect())
+            Self::Attach(extract_vec(input)?)
         } else if ident == "attach_lazy" {
-            let content;
-            parenthesized!(content in input);
-
-            let attach_lazy: Punctuated<Expr, Token!(,)> = Punctuated::parse_terminated(&content)?;
-
-            Self::AttachLazy(attach_lazy.into_iter().collect())
+            Self::AttachLazy(extract_vec(input)?)
+        } else if ident == "skip_debug" {
+            Self::SkipDebug(extract_vec(input)?)
         } else {
-            abort!(ident, "Expected one of `closures`, `async_blocks`, `tags`");
+            abort!(ident, "Expected one of `closures`, `async_blocks`, `skip`, `tag`, `attach`, `attach_lazy`, `skip_debug`");
         };
 
         Ok(arg)
     }
+}
+
+fn extract_bool(input: syn::parse::ParseStream) -> syn::Result<bool> {
+    let mut b = true;
+
+    if input.peek(Paren) {
+        let content;
+        parenthesized!(content in input);
+
+        let token: LitBool = content.parse()?;
+        b = token.value();
+    }
+
+    Ok(b)
+}
+
+fn extract_vec<T: Parse>(input: syn::parse::ParseStream) -> syn::Result<Vec<T>> {
+    let content;
+    parenthesized!(content in input);
+
+    let elems: Punctuated<T, Token!(,)> = Punctuated::parse_terminated(&content)?;
+
+    Ok(elems.into_iter().collect())
 }

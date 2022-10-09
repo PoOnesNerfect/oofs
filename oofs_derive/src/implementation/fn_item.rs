@@ -1,14 +1,14 @@
-use super::{props, Properties};
+use super::{props, Props};
 use quote::ToTokens;
 use syn::{parse::Parse, ItemFn};
 
 pub struct OofFn {
     pub inner: ItemFn,
-    pub props: Properties,
+    pub props: Props,
 }
 
 impl OofFn {
-    pub fn with_props(mut self, props: Properties) -> Self {
+    pub fn with_props(mut self, props: Props) -> Self {
         self.props.merge(props);
         self
     }

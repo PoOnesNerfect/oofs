@@ -97,13 +97,13 @@ macro_rules! oof {
 /// let z = "lazy attachment";
 ///
 /// ensure!(false, {
-///   tags: [MyTag, OtherTag],
+///   tag: [MyTag, OtherTag],
 ///   attach: [&y, "attachment", Instant::now()],
 ///   attach_lazy: [|| format!("context {}", &z)]
 /// });
 ///
 /// ensure!(false, "custom context with value {:?}", x, {
-///   tags: [MyTag, OtherTag],
+///   tag: [MyTag, OtherTag],
 ///   attach: [&y, "attachment", Instant::now()],
 ///   attach_lazy: [|| format!("context {}", &z)]
 /// });
@@ -124,7 +124,7 @@ macro_rules! ensure {
     (@fmt $cond:expr, ($($fmt:expr,)*), $arg:expr $(, $($rest:tt)*)?) => {
         $crate::ensure!(@fmt $cond, ($($fmt,)* $arg,), $($($rest)*)?);
     };
-    (@meta $cond:expr, $ret:expr, tags: [$($tag:ty),* $(,)?] $(, $($rest:tt)*)?) => {
+    (@meta $cond:expr, $ret:expr, tag: [$($tag:ty),* $(,)?] $(, $($rest:tt)*)?) => {
         $crate::ensure!(@meta $cond, $ret $(.tag::<$tag>())*, $($($rest)*)?);
     };
     (@meta $cond:expr, $ret:expr, attach: [$($a:expr),* $(,)?] $(, $($rest:tt)*)?) => {
@@ -192,13 +192,13 @@ macro_rules! ensure {
 /// let z = "lazy attachment";
 ///
 /// ensure_eq!(1u8, 2u8, {
-///   tags: [MyTag, OtherTag],
+///   tag: [MyTag, OtherTag],
 ///   attach: [&y, "attachment", Instant::now()],
 ///   attach_lazy: [|| format!("context {}", &z)]
 /// });
 ///
 /// ensure_eq!(1u8, 2u8, "custom context with value {:?}", x, {
-///   tags: [MyTag, OtherTag],
+///   tag: [MyTag, OtherTag],
 ///   attach: [&y, "attachment", Instant::now()],
 ///   attach_lazy: [|| format!("context {}", &z)]
 /// });
@@ -519,11 +519,11 @@ mod chain;
 mod context;
 mod ext;
 pub mod tags;
-mod tsa;
+mod var_check;
 
 /// Module used by attribute `#[oofs]`
 pub mod __used_by_attribute {
-    pub use crate::{builder::*, context::*, tsa::*};
+    pub use crate::{builder::*, context::*, var_check::*};
 
     pub const DEBUG_OWNED: bool = cfg!(all(
         not(feature = "debug_strategy_disabled"),

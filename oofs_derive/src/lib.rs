@@ -10,7 +10,7 @@ mod implementation;
 /// - [skip](#skip)
 /// - [closures](#closures)
 /// - [async_blocks](#async_blocks)
-/// - [tags](#tags)
+/// - [tag](#tag)
 /// - [attach](#attach)
 /// - [attach_lazy](#attach_lazy)
 ///
@@ -31,7 +31,7 @@ mod implementation;
 ///   #[oofs(closures)]
 ///   impl Foo {
 ///       // tag `RetryTag` to all `?` operators in this method.
-///       #[oofs(tags(RetryTag))]
+///       #[oofs(tag(RetryTag))]
 ///       fn method(&self) -> Result<usize, Oof> {
 ///           // ...
 ///           # Ok(0)
@@ -41,7 +41,7 @@ mod implementation;
 /// - Multiple arguments can be grouped together in a single attribute, separated by comma.
 ///
 ///   ```rust
-///   use oofs::{oofs, Oof, OofExt};
+///   use oofs::{oofs, Oof};
 ///
 ///   struct RetryTag;
 ///
@@ -52,7 +52,7 @@ mod implementation;
 ///
 ///   // inject context to all closures in every method returning `Result<_, _>`.
 ///   // also, tag `RetryTag` to all `?` in every method returning `Result<_, _>`.
-///   #[oofs(closures, tags(RetryTag))]
+///   #[oofs(closures, tag(RetryTag))]
 ///   impl Foo {
 ///       fn method(&self) -> Result<usize, Oof> {
 ///           // ...
@@ -75,7 +75,7 @@ mod implementation;
 ///   // also, tag `RetryTag` to all `?` in every method returning `Result<_, _>`.
 ///   // also, attaches `123`, `x`, and `"hello world"` to all `?` in every method returning `Result<_, _>`.
 ///   #[oofs(closures)]
-///   #[oofs(tags(RetryTag))]
+///   #[oofs(tag(RetryTag))]
 ///   #[oofs(attach(123, x, "hello world"))]
 ///   impl Foo {
 ///       fn method(&self) -> Result<usize, Oof> {
@@ -269,15 +269,15 @@ mod implementation;
 /// }
 /// ```
 ///
-/// ## tags
+/// ## tag
 ///
-/// `#[oofs(tags(ThisType, ThatType))]`
+/// `#[oofs(tag(ThisType, ThatType))]`
 ///
-/// This argument tags specified types into all `?` operators.
+/// This argument tag specified types into all `?` operators.
 ///
 /// Ex)
 /// ```rust
-/// use oofs::{oofs, Oof, OofExt};
+/// use oofs::{oofs, Oof};
 /// use std::future::Future;
 ///
 /// struct ThisType;
@@ -291,7 +291,7 @@ mod implementation;
 ///
 /// #[oofs]
 /// impl Foo {
-///     #[oofs(tags(ThisType, ThatType))]
+///     #[oofs(tag(ThisType, ThatType))]
 ///     fn method(&self) -> Result<usize, Oof> {
 ///         // `ThisType` and `ThatType` are tagged
 ///         some_fn()?;
@@ -313,7 +313,7 @@ mod implementation;
 ///
 /// Ex)
 /// ```rust
-/// use oofs::{oofs, Oof, OofExt};
+/// use oofs::{oofs, Oof};
 /// use std::future::Future;
 ///
 /// pub struct Foo {
@@ -348,7 +348,7 @@ mod implementation;
 ///
 /// Ex)
 /// ```rust
-/// use oofs::{oofs, Oof, OofExt};
+/// use oofs::{oofs, Oof};
 /// use std::future::Future;
 ///
 /// pub struct Foo {

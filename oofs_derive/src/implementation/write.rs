@@ -1,14 +1,14 @@
-use super::props::Properties;
+use super::props::Props;
 use quote::ToTokens;
 use syn::{token::Semi, *};
 
 pub struct Writer<'a> {
     tokens: &'a mut proc_macro2::TokenStream,
-    props: Properties,
+    props: &'a Props,
 }
 
 impl<'a> Writer<'a> {
-    pub fn new(tokens: &'a mut proc_macro2::TokenStream, props: Properties) -> Self {
+    pub fn new(tokens: &'a mut proc_macro2::TokenStream, props: &'a Props) -> Self {
         Self { tokens, props }
     }
 

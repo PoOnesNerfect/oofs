@@ -1,4 +1,4 @@
-use super::props::Properties;
+use super::props::Props;
 use proc_macro2::Span;
 use quote::{quote, quote_spanned, ToTokens};
 use syn::{
@@ -7,16 +7,17 @@ use syn::{
     token::Comma,
     token::{Await, Brace, Dot, Eq, Let, Paren, Semi},
     Expr, ExprAwait, ExprCall, ExprField, ExprMethodCall, Ident, Path, PathArguments, ReturnType,
+    Type,
 };
 
 pub struct Context<'a> {
     tokens: &'a mut proc_macro2::TokenStream,
-    props: Properties,
+    props: &'a Props,
     depth: usize,
 }
 
 impl<'a> Context<'a> {
-    pub fn new(tokens: &'a mut proc_macro2::TokenStream, props: Properties) -> Self {
+    pub fn new(tokens: &'a mut proc_macro2::TokenStream, props: &'a Props) -> Self {
         Self {
             tokens,
             props,
@@ -26,7 +27,7 @@ impl<'a> Context<'a> {
 
     pub fn expr(mut self, expr: &'a Expr) {
         let inner = self._expr(expr);
-        inner.to_tokens(self.tokens, self.props);
+        inner.to_tokens(self.tokens);
     }
 
     fn _expr(&mut self, expr: &'a Expr) -> ContextInner<'a> {
@@ -47,7 +48,7 @@ impl<'a> Context<'a> {
 
         let index = this.chain.len();
 
-        let method = Method::new(index, &mut this.agg_index, _method_call, self.props.clone());
+        let method = Method::new(index, &mut this.agg_index, _method_call, self.props);
 
         this.chain.push(method);
 
@@ -55,7 +56,7 @@ impl<'a> Context<'a> {
     }
 
     fn _call(&mut self, _call: &'a ExprCall) -> ContextInner<'a> {
-        ContextInner::call(_call, self.depth, self.props.clone())
+        ContextInner::call(_call, self.depth, self.props)
     }
 
     fn _await(&mut self, _await: &'a ExprAwait) -> ContextInner<'a> {
@@ -83,7 +84,7 @@ impl<'a> Context<'a> {
         if let Expr::Path(path) = expr {
             if path.qself.is_none() {
                 if let Some(ident) = path.path.get_ident() {
-                    return ContextInner::ident(ident, self.depth);
+                    return ContextInner::ident(ident, self.depth, self.props);
                 }
             }
         }
@@ -95,7 +96,7 @@ impl<'a> Context<'a> {
         if let Expr::Field(field) = expr {
             // if field is of a variable, we don't want to consume it.
             if matches!(field.base.as_ref(), Expr::Path(_)) {
-                return ContextInner::field(field, self.depth);
+                return ContextInner::field(field, self.depth, self.props);
             }
         }
 
@@ -103,7 +104,7 @@ impl<'a> Context<'a> {
     }
 
     fn _other(&mut self, _other: &'a Expr) -> ContextInner<'a> {
-        ContextInner::arg(_other, self.depth, self.props.clone())
+        ContextInner::arg(_other, self.depth, self.props)
     }
 }
 
@@ -111,49 +112,15 @@ struct ContextInner<'a> {
     agg_index: usize,
     receiver: Receiver<'a>,
     chain: Vec<Method<'a>>,
+    props: &'a Props,
 }
 
-impl<'a> ContextInner<'a> {
-    fn field(field: &'a ExprField, depth: usize) -> Self {
-        Self {
-            receiver: Receiver::field(field),
-            chain: Vec::with_capacity(depth),
-            agg_index: 0,
-        }
-    }
-
-    fn ident(ident: &'a Ident, depth: usize) -> Self {
-        Self {
-            receiver: Receiver::ident(ident),
-            chain: Vec::with_capacity(depth),
-            agg_index: 0,
-        }
-    }
-
-    fn call(expr: &'a ExprCall, depth: usize, props: Properties) -> Self {
-        let mut agg_index = 0;
-
-        ContextInner {
-            receiver: Receiver::call(&mut agg_index, expr, props),
-            agg_index,
-            chain: Vec::with_capacity(depth),
-        }
-    }
-
-    fn arg(expr: &'a Expr, depth: usize, props: Properties) -> Self {
-        let mut agg_index = 0;
-
-        ContextInner {
-            receiver: Receiver::arg(&mut agg_index, expr, props),
-            agg_index,
-            chain: Vec::with_capacity(depth),
-        }
-    }
-
-    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream, props: Properties) {
+impl<'a> ToTokens for ContextInner<'a> {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let Self {
             receiver,
             chain,
+            props,
             agg_index: _,
         } = self;
 
@@ -181,23 +148,64 @@ impl<'a> ContextInner<'a> {
 
             braced.extend(quote_spanned!(span=> OofGenerator::build_oof));
             Paren(span).surround(braced, |parens| {
-                receiver.write_call(parens);
-
-                for method in chain {
-                    method.write_call(parens);
+                fn tag<'a>(
+                    mut tags: impl Iterator<Item = &'a Type>,
+                    tokens: &mut proc_macro2::TokenStream,
+                    f: impl FnOnce(&mut proc_macro2::TokenStream),
+                ) {
+                    if let Some(t) = tags.next() {
+                        tokens.extend(quote!(::oofs::OofExt::_tag::<#t>));
+                        Paren(t.span()).surround(tokens, |parens| {
+                            tag(tags, parens, f);
+                        });
+                    } else {
+                        f(tokens);
+                    }
                 }
 
-                for tag in &props.tags {
-                    parens.extend(quote!(._tag::<#tag>()));
+                fn attach<'a>(
+                    mut attachments: impl Iterator<Item = &'a Expr>,
+                    tokens: &mut proc_macro2::TokenStream,
+                    f: impl FnOnce(&mut proc_macro2::TokenStream),
+                ) {
+                    if let Some(t) = attachments.next() {
+                        tokens.extend(quote!(::oofs::OofExt::_attach));
+                        Paren(t.span()).surround(tokens, |parens| {
+                            attach(attachments, parens, f);
+                            parens.extend(quote!(, #t))
+                        });
+                    } else {
+                        f(tokens);
+                    }
                 }
 
-                for attach in &props.attach {
-                    parens.extend(quote!(._attach(#attach)));
+                fn attach_lazy<'a>(
+                    mut lazy_attachments: impl Iterator<Item = &'a Expr>,
+                    tokens: &mut proc_macro2::TokenStream,
+                    f: impl FnOnce(&mut proc_macro2::TokenStream),
+                ) {
+                    if let Some(t) = lazy_attachments.next() {
+                        tokens.extend(quote!(::oofs::OofExt::_attach_lazy));
+                        Paren(t.span()).surround(tokens, |parens| {
+                            attach_lazy(lazy_attachments, parens, f);
+                            parens.extend(quote!(, #t))
+                        });
+                    } else {
+                        f(tokens);
+                    }
                 }
 
-                for lazy in &props.attach_lazy {
-                    parens.extend(quote!(._attach_lazy(#lazy)));
-                }
+                attach_lazy(props.attach_lazy.iter().rev(), parens, |tokens| {
+                    attach(props.attach.iter().rev(), tokens, |tokens| {
+                        tag(props.tag.iter().rev(), tokens, |tokens| {
+                            receiver.write_call(tokens);
+
+                            for method in chain {
+                                method.write_call(tokens);
+                            }
+                        });
+                    });
+                });
 
                 parens
                     .extend(quote_spanned!(span=>, || OofGeneratedContext::new(#receiver.into())));
@@ -208,6 +216,48 @@ impl<'a> ContextInner<'a> {
                 }
             });
         });
+    }
+}
+
+impl<'a> ContextInner<'a> {
+    fn field(field: &'a ExprField, depth: usize, props: &'a Props) -> Self {
+        Self {
+            receiver: Receiver::field(field),
+            chain: Vec::with_capacity(depth),
+            agg_index: 0,
+            props,
+        }
+    }
+
+    fn ident(ident: &'a Ident, depth: usize, props: &'a Props) -> Self {
+        Self {
+            receiver: Receiver::ident(ident),
+            chain: Vec::with_capacity(depth),
+            agg_index: 0,
+            props,
+        }
+    }
+
+    fn call(expr: &'a ExprCall, depth: usize, props: &'a Props) -> Self {
+        let mut agg_index = 0;
+
+        ContextInner {
+            receiver: Receiver::call(&mut agg_index, expr, props),
+            agg_index,
+            chain: Vec::with_capacity(depth),
+            props,
+        }
+    }
+
+    fn arg(expr: &'a Expr, depth: usize, props: &'a Props) -> Self {
+        let mut agg_index = 0;
+
+        ContextInner {
+            receiver: Receiver::arg(&mut agg_index, expr, props),
+            agg_index,
+            chain: Vec::with_capacity(depth),
+            props,
+        }
     }
 }
 
@@ -248,11 +298,11 @@ impl<'a> Receiver<'a> {
         Self::Ident(IdentReceiver::new(ident))
     }
 
-    fn call(agg_index: &mut usize, expr: &'a ExprCall, props: Properties) -> Self {
+    fn call(agg_index: &mut usize, expr: &'a ExprCall, props: &'a Props) -> Self {
         Self::Call(Call::new("__recv", agg_index, expr, props))
     }
 
-    fn arg(agg_index: &mut usize, expr: &'a Expr, props: Properties) -> Self {
+    fn arg(agg_index: &mut usize, expr: &'a Expr, props: &'a Props) -> Self {
         Self::Arg(Arg::new("__recv", 0, agg_index, expr, props))
     }
 
@@ -391,18 +441,18 @@ struct Call<'a> {
     args: Vec<(Arg<'a>, Option<&'a Comma>)>,
     dot_await: Option<DotAwait<'a>>,
     expr: &'a ExprCall,
-    props: Properties,
+    props: &'a Props,
 }
 
 impl<'a> Call<'a> {
-    fn new(prefix: &str, agg_index: &mut usize, expr: &'a ExprCall, props: Properties) -> Self {
+    fn new(prefix: &str, agg_index: &mut usize, expr: &'a ExprCall, props: &'a Props) -> Self {
         let mut name = String::new();
         fmt_expr(&mut name, &expr.func);
 
         let this = Self {
             name,
             dot_await: None,
-            args: Arg::from_punctuated(prefix, agg_index, &expr.args, props.clone()),
+            args: Arg::from_punctuated(prefix, agg_index, &expr.args, props),
             expr,
             props,
         };
@@ -474,7 +524,7 @@ struct Method<'a> {
     args: Vec<(Arg<'a>, Option<&'a Comma>)>,
     dot_await: Option<DotAwait<'a>>,
     expr: &'a ExprMethodCall,
-    props: Properties,
+    props: &'a Props,
 }
 
 impl<'a> Method<'a> {
@@ -482,14 +532,14 @@ impl<'a> Method<'a> {
         index: usize,
         agg_index: &mut usize,
         expr: &'a ExprMethodCall,
-        props: Properties,
+        props: &'a Props,
     ) -> Self {
         let prefix = format!("__{}", index);
 
         let is_meta = expr.method.to_string().starts_with('_');
 
         let args = (!is_meta)
-            .then(|| Arg::from_punctuated(&prefix, agg_index, &expr.args, props.clone()))
+            .then(|| Arg::from_punctuated(&prefix, agg_index, &expr.args, props))
             .unwrap_or_default();
 
         let this = Self {
@@ -577,10 +627,10 @@ struct Arg<'a> {
     arg: Ident,
     arg_type: Ident,
     arg_bin: Ident,
-    arg_display_fn: Ident,
+    arg_lazy_exec: Ident,
     dot_await: Option<DotAwait<'a>>,
     expr: &'a Expr,
-    props: Properties,
+    props: &'a Props,
 }
 
 impl<'a> Arg<'a> {
@@ -589,7 +639,7 @@ impl<'a> Arg<'a> {
         index: usize,
         agg_index: &mut usize,
         expr: &'a Expr,
-        props: Properties,
+        props: &'a Props,
     ) -> Arg<'a> {
         let arg_str = format!("{}_{}", prefix, index);
 
@@ -602,7 +652,7 @@ impl<'a> Arg<'a> {
             arg: Ident::new(&arg_str, expr.span()),
             arg_type: Ident::new(&format!("{arg_str}_type"), expr.span()),
             arg_bin: Ident::new(&format!("{arg_str}_bin"), expr.span()),
-            arg_display_fn: Ident::new(&format!("{arg_str}_display_fn"), expr.span()),
+            arg_lazy_exec: Ident::new(&format!("{arg_str}_display_fn"), expr.span()),
             dot_await: None,
             expr,
             props,
@@ -613,14 +663,14 @@ impl<'a> Arg<'a> {
         prefix: &str,
         agg_index: &mut usize,
         puntuated: &'a Punctuated<Expr, Comma>,
-        props: Properties,
+        props: &'a Props,
     ) -> Vec<(Arg<'a>, Option<&'a Comma>)> {
         puntuated
             .pairs()
             .enumerate()
             .map(|(i, a)| {
                 (
-                    Arg::new(prefix, i, agg_index, a.value(), props.clone()),
+                    Arg::new(prefix, i, agg_index, a.value(), props),
                     a.punct().map(|p| *p),
                 )
             })
@@ -639,7 +689,7 @@ impl<'a> Arg<'a> {
             arg,
             arg_type,
             arg_bin,
-            arg_display_fn,
+            arg_lazy_exec,
             expr,
             props,
             ..
@@ -651,11 +701,13 @@ impl<'a> Arg<'a> {
         props.write(tokens).expr(expr);
         Semi(Span::call_site()).to_tokens(tokens);
 
+        let should_debug = !props.skip_debug.contains(expr);
+
         tokens.extend(quote! {
             let #arg_type = type_name_of_val(&#arg);
-            let #arg_bin = __TsaBin(#arg);
-            let #arg_display_fn = #arg_bin.__try_lazy_fn(__display_owned, |v| v.__try_debug());
-            let #arg = #arg_bin.__tsa_unload();
+            let #arg_bin = __VarWrapper(#arg);
+            let #arg_lazy_exec = #arg_bin.try_lazy(#should_debug && (#arg_bin.impls_copy() || __display_owned), |v| v.try_debug_fmt());
+            let #arg = #arg_bin.unload();
         });
     }
 
@@ -674,7 +726,7 @@ impl<'a> ToTokens for Arg<'a> {
         let Self {
             index,
             arg_type,
-            arg_display_fn,
+            arg_lazy_exec,
             ..
         } = self;
 
@@ -682,7 +734,7 @@ impl<'a> ToTokens for Arg<'a> {
             OofArg::new(
                 #index,
                 #arg_type,
-                #arg_display_fn.call(),
+                #arg_lazy_exec.exec(),
             )
         });
     }

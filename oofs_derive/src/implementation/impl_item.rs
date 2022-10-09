@@ -1,14 +1,14 @@
-use super::{props::props, Properties};
+use super::{props::props, Props};
 use quote::ToTokens;
-use syn::{parse::Parse, ImplItem, ImplItemMethod, ItemImpl, ReturnType, Type};
+use syn::{parse::Parse, ImplItem, ImplItemMethod, ItemImpl, ReturnType, Signature, Type};
 
 pub struct OofImpl {
     pub inner: ItemImpl,
-    pub props: Properties,
+    pub props: Props,
 }
 
 impl OofImpl {
-    pub fn with_props(mut self, props: Properties) -> Self {
+    pub fn with_props(mut self, props: Props) -> Self {
         self.props.merge(props);
         self
     }
@@ -61,11 +61,6 @@ impl ToTokens for OofImpl {
 
         brace_token.surround(tokens, |braces| {
             for item in items {
-                if !should_impl_oof(item) {
-                    item.to_tokens(braces);
-                    continue;
-                }
-
                 if let ImplItem::Method(method) = item {
                     let ImplItemMethod {
                         attrs,
@@ -76,8 +71,12 @@ impl ToTokens for OofImpl {
                     } = method;
 
                     let mut fn_props = impl_props.clone();
+
+                    let mut attr_exists = false;
                     for attr in attrs {
-                        if !fn_props.merge_attr(&attr) {
+                        if fn_props.merge_attr(&attr) {
+                            attr_exists = true;
+                        } else {
                             attr.to_tokens(braces);
                         }
                     }
@@ -86,37 +85,28 @@ impl ToTokens for OofImpl {
                     defaultness.to_tokens(braces);
                     sig.to_tokens(braces);
 
-                    fn_props.write(braces).block(block);
+                    if fn_props.skip || !(attr_exists || returns_result(sig)) {
+                        block.to_tokens(braces);
+                    } else {
+                        fn_props.write(braces).block(block);
+                    }
+                } else {
+                    item.to_tokens(braces);
                 }
             }
         });
     }
 }
 
-fn should_impl_oof(item: &ImplItem) -> bool {
-    if let ImplItem::Method(method) = item {
-        for attr in &method.attrs {
-            let mut props = props();
-            let oofs_merged = props.merge_attr(attr);
-
-            if props.skip {
-                return false;
-            }
-
-            if oofs_merged {
-                return true;
-            }
-        }
-
-        if let ReturnType::Type(_, ty) = &method.sig.output {
-            if let Type::Path(path) = ty.as_ref() {
-                return path
-                    .path
-                    .segments
-                    .last()
-                    .map(|s| s.ident == "Result")
-                    .unwrap_or(false);
-            }
+fn returns_result(sig: &Signature) -> bool {
+    if let ReturnType::Type(_, ty) = &sig.output {
+        if let Type::Path(path) = ty.as_ref() {
+            return path
+                .path
+                .segments
+                .last()
+                .map(|s| s.ident == "Result")
+                .unwrap_or(false);
         }
     }
 

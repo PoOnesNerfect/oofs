@@ -299,7 +299,7 @@ For these cases, you have some options: `oof!(...)`, `wrap_err(_)`, `ensure!(...
 
   ```rust
   ensure!(false, "custom context with value {:?}", x, {
-    tags: [MyTag, OtherTag],
+    tag: [MyTag, OtherTag],
     attach: [&y, "attachment", Instant::now()],
     attach_lazy: [|| serde_json::to_string(&y), || format!("lazy attachment {}", &z)]
   });
@@ -313,7 +313,7 @@ For these cases, you have some options: `oof!(...)`, `wrap_err(_)`, `ensure!(...
 
   ```rust
   ensure_eq!(1u8, 2u8, "custom context with value {:?}", x, {
-    tags: [MyTag, OtherTag],
+    tag: [MyTag, OtherTag],
     attach: [&y, "attachment", Instant::now()],
     attach_lazy: [|| serde_json::to_string(&y), || format!("lazy attachment {}", &z)]
   });
@@ -321,7 +321,7 @@ For these cases, you have some options: `oof!(...)`, `wrap_err(_)`, `ensure!(...
 
 ## Attribute Arguments
 
-You can pass arguments to the attribute like `#[oofs(tags(ThisTag, ThatTag))]`.
+You can pass arguments to the attribute like `#[oofs(tag(ThisTag, ThatTag))]`.
 
 These arguments will be applied to the entire scope of the attribute.
 
