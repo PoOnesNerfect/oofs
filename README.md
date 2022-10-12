@@ -209,19 +209,19 @@ There are some **default behaviors** this attribute chooses to make:
 
 1. for `impl` blocks, methods that return `Result<_, _>` will have context injected.
 
-- override behavior by specifying `#[oofs(skip)]` above `fn` to have that specific method skipped.
+   - override behavior by specifying `#[oofs(skip)]` above `fn` to have that specific method skipped.
 
 2. for `impl` blocks, methods that do not return `Result<_, _>` will be skipped.
 
-- override behavior by specifying `#[oofs]` above `fn` to apply injection regardless.
+   - override behavior by specifying `#[oofs]` above `fn` to apply injection regardless.
 
 3. `?` operators inside closures (i.e. `|| { ... }`) will not have context injected.
 
-- override behavior by specifying `#[oofs(closures)]` above `fn` to apply injections to inside closures.
+   - override behavior by specifying `#[oofs(closures)]` above `fn` to apply injections to inside closures.
 
 4. `?` operators inside async blocks (i.e. `async { ... }`) will not have context injected.
 
-- override behavior by specifying `#[oofs(async_blocks)]` above `fn` to apply injections to inside async blocks.
+   - override behavior by specifying `#[oofs(async_blocks)]` above `fn` to apply injections to inside async blocks.
 
 5. `return ...` statements and last expression without semicolon will not have context injected.
 
