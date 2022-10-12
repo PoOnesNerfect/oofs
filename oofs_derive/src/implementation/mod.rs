@@ -9,30 +9,10 @@ mod write;
 
 pub use props::*;
 
-// FEATURES:
+// TODO FEATURES:
 // - pre-check. ex) #[oof(pre(!list.len().is_empty()))], ex) #[oof(pre(!list.len().is_empty(), message = "custom message"))]
 // - post-check. ex) #[oof(post(!list.len().is_empty()))]
 // - invar: pre + post. ex) #[oof(invar(!list.len().is_empty()))]
-// - debug mode: ex) #[oof(debug(pre(...)))], #[oof(debug(tag(...)))]]
-// - release mode: ex) #[oof(release(pre(...)))], #[oof(release(tag(...)))]
-// - tag:
-//    - all: #[oof(tag(MyTag))]
-// - skip for function in impl. ex) #[oof(skip)]
-// - custom display methods
-//    - skip: #[oof(display(skip))]
-//    - custom display methods:
-//      - #[oof(display(serde_json::to_string))]
-//      - #[oof(display(serde_json::to_string: [var1, var2]))]
-// - display_owned:
-//   - #[oofs(release(debug_strategy(owned)))]
-//    - by default, only display referenced values
-//    - allow for the whole package with feature `display_owned_release`.
-//    - disable for debug with #[oof(display_owned(disabled))].
-//    - disable for whole package with `display_owned_disabled`.
-//    - allow for individual method invocation with `.debug_strategy()`.
-// - different cases:
-//   - passed parameter is a closure or an async closure.
-//   - function/method is chained with other methods that also return a result.
 
 use self::{fn_item::OofFn, impl_item::OofImpl};
 

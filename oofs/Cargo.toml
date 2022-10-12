@@ -17,8 +17,10 @@ keywords = ["error", "error-handling", "bubble-up"]
 [features]
 default = ["location"]
 location = []
-debug_strategy_disabled = []
-debug_strategy_full = []
+debug_non_copyable_disabled = []
+debug_non_copyable_full = []
 
 [dependencies]
 oofs_derive = { version = "=0.1.15", path = "../oofs_derive" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }

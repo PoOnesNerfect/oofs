@@ -7,90 +7,30 @@ mod implementation;
 /// Place above `fn` or `impl` to generate and inject context to `?` operators.
 ///
 /// ## Attribute arguments
-/// - [skip](#skip)
-/// - [closures](#closures)
-/// - [async_blocks](#async_blocks)
+///
+/// These are the available arguments for the attribute; click to see details on each argument.
+///
 /// - [tag](#tag)
 /// - [attach](#attach)
 /// - [attach_lazy](#attach_lazy)
-///
-/// ### Notes
-/// - Attribute arguments can be applied to the entire `impl` block, or to individual `fn` methods.
-///
-///   ```rust
-///   use oofs::{oofs, Oof};
-///
-///   struct RetryTag;
-///
-///   pub struct Foo {
-///       field: usize
-///   }
-///   # async fn some_async_fn() -> Result<(), Oof> { todo!() }
-///
-///   // inject context to all closures in every method returning `Result<_, _>`.
-///   #[oofs(closures)]
-///   impl Foo {
-///       // tag `RetryTag` to all `?` operators in this method.
-///       #[oofs(tag(RetryTag))]
-///       fn method(&self) -> Result<usize, Oof> {
-///           // ...
-///           # Ok(0)
-///       }
-///   }
-///   ```
-/// - Multiple arguments can be grouped together in a single attribute, separated by comma.
-///
-///   ```rust
-///   use oofs::{oofs, Oof};
-///
-///   struct RetryTag;
-///
-///   pub struct Foo {
-///       field: usize
-///   }
-///   # async fn some_async_fn() -> Result<(), Oof> { todo!() }
-///
-///   // inject context to all closures in every method returning `Result<_, _>`.
-///   // also, tag `RetryTag` to all `?` in every method returning `Result<_, _>`.
-///   #[oofs(closures, tag(RetryTag))]
-///   impl Foo {
-///       fn method(&self) -> Result<usize, Oof> {
-///           // ...
-///           # Ok(0)
-///       }
-///   }
-/// - You can specify multiple arguments in separate lines.
-///
-///   ```rust
-///   use oofs::{oofs, Oof};
-///
-///   struct RetryTag;
-///
-///   pub struct Foo {
-///       field: usize
-///   }
-///   # async fn some_async_fn() -> Result<(), Oof> { todo!() }
-///
-///   // inject context to all closures in every method returning `Result<_, _>`.
-///   // also, tag `RetryTag` to all `?` in every method returning `Result<_, _>`.
-///   // also, attaches `123`, `x`, and `"hello world"` to all `?` in every method returning `Result<_, _>`.
-///   #[oofs(closures)]
-///   #[oofs(tag(RetryTag))]
-///   #[oofs(attach(123, x, "hello world"))]
-///   impl Foo {
-///       fn method(&self) -> Result<usize, Oof> {
-///           // ...
-///           # Ok(0)
-///       }
-///   }
-///   ```
+/// - [skip](#skip)
+/// - [closures](#closures)
+/// - [async_blocks](#async_blocks)
+/// - [debug_skip](#debug_skip)
+/// - [debug_with](#debug_with)
+/// - [debug_non_copyable](#debug_non_copyable)
 ///
 /// ## Default Behaviors
+///
 /// There are some **default behaviors** this attribute chooses to make:
-/// 1. for `impl` blocks, methods that return `Result<_, _>` will have context injected.
+/// 1. for `impl` blocks, all methods that return `Result` (i.e. `fn method(...) -> Result<_, _>`) will have context injected.
+///     - override this behavior by specifying `#[oofs(skip)]` above `fn` to have that specific method skipped.
 /// 2. for `impl` blocks, methods that do not return `Result<_, _>` will be skipped.
+///     - override this behavior by specifying `#[oofs]` above `fn` to apply injection regardless.
 /// 3. `?` operators inside closures (i.e. `|| { ... }`) will not have context injected.
+///     - override this behavior by specifying `#[oofs(closures)]` above `fn` to apply injections to inside closures.
 /// 4. `?` operators inside async blocks (i.e. `async { ... }`) will not have context injected.
+///     - override this behavior by specifying `#[oofs(async_blocks)]` above `fn` to apply injections to inside async blocks.
 /// 5. `return ...` statements and last expression without semicolon will not have context injected.
 ///
 /// Below is an example showing each of listed default bahaviours.
@@ -163,117 +103,86 @@ mod implementation;
 /// }
 /// ```
 ///
-/// Behaviors 1 - 4 can be changed by specifying arguments to the attribute like `#[oofs(...)]`.
+/// ### Notes
 ///
-/// ## skip
+/// - Attribute arguments can be applied to the entire `impl` block, or to individual `fn` methods.
 ///
-/// `#[oofs(skip)]`
+///   ```rust
+///   use oofs::{oofs, Oof};
 ///
-/// This argument skips context injection for a method in an `impl` block.
+///   struct RetryTag;
 ///
-/// Ex)
-/// ```rust
-/// use oofs::{oofs, Oof};
-/// use std::future::Future;
+///   pub struct Foo {
+///       field: usize
+///   }
+///   # async fn some_async_fn() -> Result<(), Oof> { todo!() }
 ///
-/// pub struct Foo {
-///     field: usize
-/// }
+///   // tag `RetryTag` to all `?` operators in every method returning `Result<_, _>`.
+///   #[oofs(tag(RetryTag))]
+///   impl Foo {
+///       // inject context to inside closures.
+///       #[oofs(closures)]
+///       fn method(&self) -> Result<usize, Oof> {
+///           // ...
+///           # Ok(0)
+///       }
+///   }
+///   ```
 ///
-/// # async fn some_async_fn() -> Result<(), Oof> { todo!() }
+/// - Multiple arguments can be grouped together in a single attribute, separated by comma.
 ///
-/// #[oofs]
-/// impl Foo {
-///     // context is not injected, as `skip` argument is passed.
-///     #[oofs(skip)]
-///     fn method(&self) -> Result<usize, Oof> {
-///         // ...
-///         # Ok(0)
-///     }
+///   ```rust
+///   use oofs::{oofs, Oof};
 ///
-///     // context will be injected, as `#[oofs]` argument is specified.
-///     #[oofs]
-///     fn another_method(&self) -> impl Future<Output = Result<(), Oof>> {
-///         // ...
-///         # async { Ok(()) }
-///     }
-/// }
-/// ```
+///   struct RetryTag;
 ///
-/// ## closures
+///   pub struct Foo {
+///       field: usize
+///   }
+///   # async fn some_async_fn() -> Result<(), Oof> { todo!() }
 ///
-/// `#[oofs(closures)]`
+///   // inject context to inside closures in every method returning `Result<_, _>`.
+///   // inject context to inside async blocks in every method returning `Result<_, _>`.
+///   // also, tag `RetryTag` to all `?` in every method returning `Result<_, _>`.
+///   #[oofs(closures, async_blocks, tag(RetryTag))]
+///   impl Foo {
+///       fn method(&self) -> Result<usize, Oof> {
+///           // ...
+///           # Ok(0)
+///       }
+///   }
 ///
-/// This argument applies context injection to inside closures.
+/// - You can specify multiple arguments in separate lines.
 ///
-/// Ex)
-/// ```rust
-/// use oofs::{oofs, Oof};
-/// use std::future::Future;
+///   ```rust
+///   use oofs::{oofs, Oof};
 ///
-/// pub struct Foo {
-///     field: usize
-/// }
-/// # async fn some_async_fn() -> Result<(), Oof> { todo!() }
+///   struct RetryTag;
 ///
-/// #[oofs]
-/// impl Foo {
-///     #[oofs(closures)]
-///     fn method(&self) -> Result<usize, Oof> {
-///         // context is now inside the closure
-///         let c = |x: &str| {
-///             // context now injected here
-///             x.parse::<usize>()?;
+///   pub struct Foo {
+///       field: usize
+///   }
+///   # async fn some_async_fn() -> Result<(), Oof> { todo!() }
 ///
-///             Ok::<_, Oof>(())
-///         };
-///
-///         // context is injected here as well
-///         c("hello world")?;
-///         // ...
-///         # Ok(0)
-///     }
-/// }
-/// ```
-///
-/// ## async_blocks
-///
-/// `#[oofs(async_blocks)]`
-///
-/// This argument applies context injection to inside async blocks.
-///
-/// Ex)
-/// ```rust
-/// use oofs::{oofs, Oof};
-/// use std::future::Future;
-///
-/// pub struct Foo {
-///     field: usize
-/// }
-/// # async fn some_async_fn() -> Result<(), Oof> { todo!() }
-///
-/// #[oofs]
-/// impl Foo {
-///     // context will be injected, as `#[oofs]` argument is specified.
-///     // also, `?` operators in async blocks will have context injected.
-///     #[oofs(async_blocks)]
-///     fn another_method(&self) -> impl Future<Output = Result<(), Oof>> {
-///         // ...
-///         async {
-///             // context is not injected here
-///             some_async_fn().await?;
-///
-///             Ok(())
-///         }
-///     }
-/// }
-/// ```
+///   // inject context to all closures in every method returning `Result<_, _>`.
+///   // also, tag `RetryTag` to all `?` in every method returning `Result<_, _>`.
+///   // also, attaches `123`, `x`, and `"hello world"` to all `?` in every method returning `Result<_, _>`.
+///   #[oofs(closures)]
+///   #[oofs(tag(RetryTag))]
+///   #[oofs(attach(123, x, "hello world"))]
+///   impl Foo {
+///       fn method(&self) -> Result<usize, Oof> {
+///           // ...
+///           # Ok(0)
+///       }
+///   }
+///   ```
 ///
 /// ## tag
 ///
 /// `#[oofs(tag(ThisType, ThatType))]`
 ///
-/// This argument tag specified types into all `?` operators.
+/// This argument tags specified types into all `?` operators.
 ///
 /// Ex)
 /// ```rust
@@ -289,14 +198,15 @@ mod implementation;
 /// # fn some_fn() -> Result<(), Oof> { todo!() }
 /// # fn another_fn() -> Result<(), Oof> { todo!() }
 ///
-/// #[oofs]
+/// // tag `Foo` for all methods of `Foo`.
+/// #[oofs(tag(Foo))]
 /// impl Foo {
 ///     #[oofs(tag(ThisType, ThatType))]
 ///     fn method(&self) -> Result<usize, Oof> {
-///         // `ThisType` and `ThatType` are tagged
+///         // `Foo`, `ThisType` and `ThatType` are tagged
 ///         some_fn()?;
 ///
-///         // `ThisType` and `ThatType` are tagged
+///         // `Foo`, `ThisType` and `ThatType` are tagged
 ///         another_fn()?;
 ///
 ///         // ...
@@ -322,16 +232,16 @@ mod implementation;
 /// # fn some_fn() -> Result<(), Oof> { todo!() }
 /// # fn another_fn() -> Result<(), Oof> { todo!() }
 ///
-/// #[oofs]
+/// #[oofs(attach("This is Foo"))]
 /// impl Foo {
 ///     #[oofs(attach(123, x, "hello world"))]
 ///     fn method(&self) -> Result<usize, Oof> {
 ///         let x = "some context";
 ///
-///         // 123, x, and "hello world" are attached
+///         // "This is Foo", 123, x, and "hello world" are attached
 ///         some_fn()?;
 ///
-///         // 123, x, and "hello world" are attached
+///         // "This is Foo", 123, x, and "hello world" are attached
 ///         another_fn()?;
 ///
 ///         // ...
@@ -374,6 +284,242 @@ mod implementation;
 ///     }
 /// }
 /// ```
+///
+/// ## skip
+///
+/// `#[oofs(skip)]` or `#[skip(true)]`
+///
+/// `#[oofs(skip(false))]` will unskip (apply) injection, if already enabled from outer scope.
+///
+/// This argument skips context injection for a method in an `impl` block.
+///
+/// Ex)
+/// ```rust
+/// use oofs::{oofs, Oof};
+/// use std::future::Future;
+///
+/// pub struct Foo {
+///     field: usize
+/// }
+///
+/// # async fn some_async_fn() -> Result<(), Oof> { todo!() }
+/// # struct CustomError;
+///
+/// #[oofs]
+/// impl Foo {
+///     // context is not injected, as `skip` argument is passed.
+///     #[oofs(skip)]
+///     fn method(&self) -> Result<usize, CustomError> {
+///         // ...
+///         # Ok(0)
+///     }
+///
+///     // context will be injected, as `#[oofs]` argument is specified.
+///     #[oofs]
+///     fn another_method(&self) -> impl Future<Output = Result<(), Oof>> {
+///         // ...
+///         # async { Ok(()) }
+///     }
+/// }
+/// ```
+///
+/// ## closures
+///
+/// `#[oofs(closures)]` or `#[oofs(closures(true))]`
+///
+/// `#[oofs(closures(false))]` will disable closures, if already enabled from outer scope.
+///
+/// This argument applies context injection to inside closures.
+///
+/// Ex)
+/// ```rust
+/// use oofs::{oofs, Oof};
+/// use std::future::Future;
+///
+/// pub struct Foo {
+///     field: usize
+/// }
+/// # async fn some_async_fn() -> Result<(), Oof> { todo!() }
+///
+/// #[oofs]
+/// impl Foo {
+///     #[oofs(closures)]
+///     fn method(&self) -> Result<usize, Oof> {
+///         // context is now inside the closure
+///         let c = |x: &str| {
+///             // context now injected here
+///             x.parse::<usize>()?;
+///
+///             Ok::<_, Oof>(())
+///         };
+///
+///         // context is injected here as well
+///         c("hello world")?;
+///         // ...
+///         # Ok(0)
+///     }
+/// }
+/// ```
+///
+/// ## async_blocks
+///
+/// `#[oofs(async_blocks)]` or `#[oofs(async_blocks(true))]`
+///
+/// `#[oofs(async_blocks(false))]` will disable injecting into async blocks, if already enabled from outer scope.
+///
+/// This argument applies context injection to inside async blocks.
+///
+/// Ex)
+/// ```rust
+/// use oofs::{oofs, Oof};
+/// use std::future::Future;
+///
+/// pub struct Foo {
+///     field: usize
+/// }
+/// # async fn some_async_fn() -> Result<(), Oof> { todo!() }
+///
+/// #[oofs]
+/// impl Foo {
+///     // context will be injected, as `#[oofs]` argument is specified.
+///     // also, `?` operators in async blocks will have context injected.
+///     #[oofs(async_blocks)]
+///     fn another_method(&self) -> impl Future<Output = Result<(), Oof>> {
+///         // ...
+///         async {
+///             // context is injected here
+///             some_async_fn().await?;
+///
+///             Ok(())
+///         }
+///     }
+/// }
+/// ```
+///
+/// ## debug_skip
+///
+/// `#[oofs(debug_skip(&x))]`
+///
+/// Argument expressions supplied are skipped from debugging argument values.
+///
+/// You can supply multiple expressions separated by commas.
+///
+/// Note that the supplied expression must match exactly the one you want to skip debugging.
+///
+/// Ex)
+/// ```rust
+/// use oofs::{oofs, Oof};
+/// use std::future::Future;
+///
+/// pub struct Foo {
+///     field: usize
+/// }
+/// # fn some_fn(x: &str, n: usize, y: &str) -> Result<(), Oof> { todo!() }
+///
+/// #[oofs]
+/// impl Foo {
+///     // function arguments that match any of these expressions are ignored from being debugged.
+///     #[oofs(debug_skip(&x, 123usize))]
+///     fn another_method(&self) -> Result<(), Oof> {
+///         let x = "hello world";
+///
+///         // `&x` and `123usize` are not debugged, but third arg `x` is still debugged.
+///         some_fn(&x, 123usize, x)?;
+///
+///         // ...
+///
+///         Ok(())
+///     }
+/// }
+/// ```
+///
+/// ## debug_with
+///
+/// `#[oofs(debug_with(&x -> serde_json::to_string($a).unwrap()))]`
+///
+/// Argument expressions supplied before `->` are debugged using the custom expression after `->`.
+///
+/// Expression before `->` must match exactly the argument you want to debug with custom method.
+///
+/// Expression after `->` must return an object/primitives that implements `ToString` (i.e. String, &str, usize, etc.).
+/// If you want to supply the argument expression as argument to the custom debug expression, you must use `$a` to refer to it.
+///
+/// You can only supply ***one*** expression for better readability considerations.
+///
+/// Note that the supplied expression must match exactly the one you want to custom debug.
+///
+/// Ex)
+/// ```rust
+/// use oofs::{oofs, Oof};
+/// use std::future::Future;
+/// use serde::{Serialize, Deserialize};
+///
+/// #[derive(Serialize, Deserialize)]
+/// pub struct Foo {
+///     field: usize
+/// }
+/// # fn some_fn(x: &Foo, n: usize) -> Result<(), Oof> { todo!() }
+///
+/// #[oofs]
+/// impl Foo {
+///     #[oofs(debug_with(&x -> serde_json::to_string($a).unwrap()))]
+///     fn another_method(&self) -> Result<(), Oof> {
+///         let x = Foo {
+///             field: 123
+///         };
+///
+///         // `&x` will be displayed as `{ "field": 123 }`.
+///         some_fn(&x, 123usize)?;
+///
+///         // ...
+///
+///         Ok(())
+///     }
+/// }
+/// ```
+///
+/// ## debug_non_copyable
+///
+/// `#[oofs(debug_non_copyable(full))]`
+///
+/// `#[oofs(debug_non_copyable(disabled))]`
+///
+/// This argument takes either `full` or `disabled`.
+///
+/// Non-copyable arguments cannot have debug values lazily generated like references or copyable values like primitives.
+///
+/// Default behavior for debugging non-copyable values (String, custom objects, etc.) are:
+/// - For debug mode, load debug formatted values before calling each function, incurring overhead at every call.
+/// - For release mode, skip debugging non-copyable values.
+///
+/// You can use these arguments to change this default behavior:
+/// - `full`: enable debugging copyable values for release mode. This will incur overhead of formatting debug values for every call.
+/// - `disabled`: disable debugging non-copyable values even for debug mode.
+///
+/// If you want to set this setting for the entire library/binary, you can enable features either `debug_non_copyable_full` or `debug_non_copyable_disabled`.
+///
+/// Ex)
+/// ```rust
+/// use oofs::{oofs, Oof};
+/// use std::future::Future;
+///
+/// pub struct Foo {
+///     field: usize
+/// }
+/// # async fn some_async_fn() -> Result<(), Oof> { todo!() }
+///
+/// // for the entire `impl` block, disable debugging non-copyable values even fore debug mode.
+/// #[oofs(debug_non_copyable(disabled))]
+/// impl Foo {
+///     // for this specific method, enable debugging non-copyable values even for release mode.
+///     #[oofs(debug_non_copyable(full))]
+///     fn another_method(&self) -> Result<(), Oof> {
+///         // ...
+///         # Ok(())
+///     }
+/// }
+/// ```
+///
 #[proc_macro_attribute]
 #[proc_macro_error]
 pub fn oofs(

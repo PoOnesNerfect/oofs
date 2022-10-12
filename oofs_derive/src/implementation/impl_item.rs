@@ -76,16 +76,15 @@ impl ToTokens for OofImpl {
                     for attr in attrs {
                         if fn_props.merge_attr(&attr) {
                             attr_exists = true;
-                        } else {
-                            attr.to_tokens(braces);
                         }
+                        attr.to_tokens(braces);
                     }
 
                     vis.to_tokens(braces);
                     defaultness.to_tokens(braces);
                     sig.to_tokens(braces);
 
-                    if fn_props.skip || !(attr_exists || returns_result(sig)) {
+                    if fn_props.skip() || !(attr_exists || returns_result(sig)) {
                         block.to_tokens(braces);
                     } else {
                         fn_props.write(braces).block(block);

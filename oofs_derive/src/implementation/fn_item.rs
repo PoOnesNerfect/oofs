@@ -44,7 +44,7 @@ impl ToTokens for OofFn {
         vis.to_tokens(tokens);
         sig.to_tokens(tokens);
 
-        if props.skip {
+        if props.skip() {
             block.to_tokens(tokens);
         } else {
             props.write(tokens).block(block);

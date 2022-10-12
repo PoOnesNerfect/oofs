@@ -215,7 +215,7 @@ impl<'a> Writer<'a> {
         async_token.to_tokens(tokens);
         capture.to_tokens(tokens);
 
-        if props.async_blocks {
+        if props.async_blocks() {
             props.write(tokens).block(block);
         } else {
             block.to_tokens(tokens);
@@ -368,7 +368,7 @@ impl<'a> Writer<'a> {
         or2_token.to_tokens(tokens);
         output.to_tokens(tokens);
 
-        if props.closures {
+        if props.closures() {
             props.write(tokens).expr(body);
         } else {
             body.to_tokens(tokens);

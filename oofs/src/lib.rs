@@ -4,13 +4,17 @@ use core::fmt::{self, Debug, Display, Write};
 use std::error::{self, Error};
 use tags::Tags;
 
-#[cfg(all(feature = "debug_strategy_disabled", feature = "debug_strategy_full"))]
+#[cfg(all(
+    feature = "debug_non_copyable_disabled",
+    feature = "debug_non_copyable_full"
+))]
 compile_error!(
-    "features `debug_strategy_disabled` and `debug_strategy_full` are mutually exclusive"
+    "features `debug_non_copyable_disabled` and `debug_non_copyable_full` are mutually exclusive"
 );
 
-pub use ext::OofExt;
+pub type Result<T, E = Oof> = std::result::Result<T, E>;
 
+pub use ext::OofExt;
 pub use oofs_derive::oofs;
 
 /// Create a custom error `Oof` similar to `anyhow!`
@@ -379,6 +383,28 @@ impl Oof {
         Self::builder().with_custom(message).build()
     }
 
+    /// Wraps `Oof` in `Result::Err(_)`.
+    ///
+    /// Use it to easily return an `Err(Oof)` instead of manually wrapping it in `Err(_)`.
+    ///
+    /// Ex)
+    /// ```rust
+    /// use oofs::oof;
+    /// # use oofs::{Oof, oofs};
+    /// # #[oofs]
+    /// # fn _ex() -> Result<(), Oof> {
+    ///
+    /// return oof!("custom error").into_res();
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn into_res<T, E>(self) -> Result<T, E>
+    where
+        E: From<Self>,
+    {
+        Err(self.into())
+    }
+
     #[cfg_attr(feature = "location", track_caller)]
     fn builder() -> OofBuilder {
         OofBuilder::new()
@@ -502,31 +528,21 @@ impl Oof {
         self.attachments.push(f().to_string());
         self
     }
-
-    /// Wraps `Oof` in `Result::Err(_)`.
-    ///
-    /// Use it to easily return an `Oof` instead of manually wrapping it in `Err(_)`.
-    pub fn into_res<T, E>(self) -> Result<T, E>
-    where
-        E: From<Self>,
-    {
-        Err(self.into())
-    }
 }
 
 mod builder;
 mod chain;
 mod context;
 mod ext;
-pub mod tags;
+mod tags;
 mod var_check;
 
 /// Module used by attribute `#[oofs]`
 pub mod __used_by_attribute {
-    pub use crate::{builder::*, context::*, var_check::*};
+    pub use crate::{builder::*, context::*, tags::*, var_check::*};
 
-    pub const DEBUG_OWNED: bool = cfg!(all(
-        not(feature = "debug_strategy_disabled"),
-        any(debug_assertions, feature = "debug_strategy_full")
+    pub const DEBUG_NON_COPYABLE: bool = cfg!(all(
+        not(feature = "debug_non_copyable_disabled"),
+        any(debug_assertions, feature = "debug_non_copyable_full")
     ));
 }

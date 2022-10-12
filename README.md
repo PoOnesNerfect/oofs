@@ -21,10 +21,12 @@ This library provides three main features:
 - [oofs](#oofs)
   - [Basic Example 1](#basic-example-1)
   - [Basic Example 2](#basic-example-2)
+  - [`#[oofs]` attribute](#oofs-attribute)
+    - [Default Behaviors](#default-behaviors)
+    - [Attribute Arguments](#attribute-arguments)
   - [Tagging Errors](#tagging-errors)
   - [Attaching Custom Contexts](#attaching-custom-contexts)
   - [Returning Custom Errors](#returning-custom-errors)
-  - [Attribute Arguments](#attribute-arguments)
   - [Features](#features)
   - [Notes/Limitations About the Library](#noteslimitations-about-the-library)
     - [About `#[oofs]` Attribute](#about-oofs-attribute)
@@ -36,7 +38,7 @@ This library provides three main features:
 
 ## Basic Example 1
 
-Below showcases the context injection.
+Below shows a minimal example of context injection by `#[oofs]` attribute.
 
 ```rust
 use oofs::{oofs, Oof};
@@ -59,7 +61,7 @@ fn inner_fn(x: usize, y: &str) -> Result<(), Oof> {
 }
 ```
 
-Printing error from `outer_fn()` outputs:
+Running `outer_fn()` outputs:
 
 ```
 inner_fn($0, $1) failed at `oofs/tests/basic.rs:6:5`
@@ -73,6 +75,23 @@ Caused by:
 
     1: invalid digit found in string
 ```
+
+The error displays chain of methods that fail, their locations in code, the parameters' types and their debug values.
+This is what gets displayed when you format the error as `Debug` (i.e. `{:?}`).
+
+There should be almost no overhead to performance, as all injected code are either const evaluated (i.e. type_name, call name, etc), or lazily loaded only when an error is encountered (debug string of each argument).
+
+**_Note:_** Actually, above statement is semi-true. Let me explain:
+
+Only the arguments that are references or copyable objects like primitives (i.e. `bool`, `usize`, etc.) can have their debug strings lazy loaded.
+For non-copyable objects (i.e. passing an owned object to function args, like `String`), their debug strings are instantly loaded before the call for debug mode, and disabled for release mode.
+
+Default behavior for debugging non-copyable values (String, custom objects, etc.) are:
+
+- For debug mode, load debug formatted values before calling each function, incurring overhead at every call.
+- For release mode, skip debugging non-copyable values.
+
+You can change this default behavior with [attribute arguments](https://docs.rs/oofs/latest/oofs/attr.oofs.html) or by enabling either features `debug_non_copyable_disabled` or `debug_non_copyable_full`. See more details on them in [features](#features).
 
 ## Basic Example 2
 
@@ -146,7 +165,7 @@ impl MyStruct {
 }
 ```
 
-If we print the error from `application()`, it would output:
+Running `application()` outputs:
 
 ```
 Retrying middlelayer!
@@ -172,9 +191,6 @@ Caused by:
     2: invalid digit found in string
 ```
 
-The error displays chain of methods that fail, their locations in code, the parameters' types and their debug values.
-Same will be displayed when you format the error as Debug (i.e. `{:?}`).
-
 Nice looking error is not all; we also get categorized error handling with tags.
 
 At the source method `failing_method`, we tag the `parse` method with `RetryTag` type.
@@ -184,6 +200,38 @@ When the tag is found, we handle the case by calling `middlelayer` again.
 With tagging, we no longer have to go through every error variant at every level.
 We just look for the tag we want to handle for, and we handle the tagged error accordingly.
 In the above example, we retry calling `middlelayer` again if `RetryTag` tag is found.
+
+## `#[oofs]` attribute
+
+### Default Behaviors
+
+There are some **default behaviors** this attribute chooses to make:
+
+1. for `impl` blocks, methods that return `Result<_, _>` will have context injected.
+
+- override behavior by specifying `#[oofs(skip)]` above `fn` to have that specific method skipped.
+
+2. for `impl` blocks, methods that do not return `Result<_, _>` will be skipped.
+
+- override behavior by specifying `#[oofs]` above `fn` to apply injection regardless.
+
+3. `?` operators inside closures (i.e. `|| { ... }`) will not have context injected.
+
+- override behavior by specifying `#[oofs(closures)]` above `fn` to apply injections to inside closures.
+
+4. `?` operators inside async blocks (i.e. `async { ... }`) will not have context injected.
+
+- override behavior by specifying `#[oofs(async_blocks)]` above `fn` to apply injections to inside async blocks.
+
+5. `return ...` statements and last expression without semicolon will not have context injected.
+
+These default behaviors can be changed by attribute arguments.
+
+### Attribute Arguments
+
+Possible attributes arguments are: `tag`, `attach`, `attach_lazy`, `closures`, `async_blocks`, `skip`, `debug_skip`, `debug_with`, and `debug_non_copyable`.
+
+For details on how to use them, see [docs](https://docs.rs/oofs/latest/oofs/attr.oofs.html).
 
 ## Tagging Errors
 
@@ -319,24 +367,14 @@ For these cases, you have some options: `oof!(...)`, `wrap_err(_)`, `ensure!(...
   });
   ```
 
-## Attribute Arguments
-
-You can pass arguments to the attribute like `#[oofs(tag(ThisTag, ThatTag))]`.
-
-These arguments will be applied to the entire scope of the attribute.
-
-For details about the attribute arguments, see [documentation](https://docs.rs/oofs/latest/oofs/attr.oofs.html).
-
 ## Features
 
 - `location` (default: `true`): enables printing location of code that fails.
-- `debug_strategy_disabled` (default: `false`): Disables debugging non-copy-able parameters.
+- `debug_non_copyable_disabled` (default: `false`): Disables debugging non-copy-able function arguments.
 
-  Default behavior is to debug non-copyable parameters for debug mode, but not debugging them for release mode.
+  Default behavior is to instantly load debug strings of non-copyable arguments before each call for debug mode, but disabling them for release mode.
 
-- `debug_strategy_full` (default: `false`): Enables debugging non-copy-able parameters even for release mode.
-
-  Default behavior is to debug non-copyable parameters for debug mode, but not debugging them for release mode.
+- `debug_non_copyable_full` (default: `false`): Enables instant loading debug strings of non-copy-able arguments even for release mode.
 
 ## Notes/Limitations About the Library
 
@@ -394,10 +432,10 @@ Now, should the default behavior be to always instantly load values of non-copya
 
 As a compromise, I made it so that, for debug mode, it will instantly load values of non-copyable arguments; and, for release mode, it will not load values of non-copyable arguments.
 
-You can change this behavior with features `debug_strategy_disabled` and `debug_strategy_full`.
+You can change this behavior with features `debug_non_copyable_disabled` and `debug_non_copyable_full`.
 
-`debug_strategy_disabled` will disable loading values of non-copyable arguments even for debug mode.
-`debug_strategy_full` will enable loading values of non-copyable arguments even for releaes mode.
+`debug_non_copyable_disabled` will disable loading values of non-copyable arguments even for debug mode.
+`debug_non_copyable_full` will enable loading values of non-copyable arguments even for releaes mode.
 
 ### Compatibility with `#[async_trait]`
 

@@ -127,8 +127,6 @@ impl<'a> ToTokens for ContextInner<'a> {
         Brace(Span::call_site()).surround(tokens, |braced| {
             braced.extend(quote! {
                 use ::oofs::__used_by_attribute::*;
-                let __display_owned = DEBUG_OWNED;
-
                 fn type_name_of_val<T>(_t: &T) -> &'static str {
                     core::any::type_name::<T>()
                 }
@@ -626,7 +624,7 @@ struct Arg<'a> {
     index: usize,
     arg: Ident,
     arg_type: Ident,
-    arg_bin: Ident,
+    arg_wrapper: Ident,
     arg_lazy_exec: Ident,
     dot_await: Option<DotAwait<'a>>,
     expr: &'a Expr,
@@ -651,7 +649,7 @@ impl<'a> Arg<'a> {
             index,
             arg: Ident::new(&arg_str, expr.span()),
             arg_type: Ident::new(&format!("{arg_str}_type"), expr.span()),
-            arg_bin: Ident::new(&format!("{arg_str}_bin"), expr.span()),
+            arg_wrapper: Ident::new(&format!("{arg_str}_wrapper"), expr.span()),
             arg_lazy_exec: Ident::new(&format!("{arg_str}_display_fn"), expr.span()),
             dot_await: None,
             expr,
@@ -688,7 +686,7 @@ impl<'a> Arg<'a> {
         let Self {
             arg,
             arg_type,
-            arg_bin,
+            arg_wrapper,
             arg_lazy_exec,
             expr,
             props,
@@ -701,13 +699,22 @@ impl<'a> Arg<'a> {
         props.write(tokens).expr(expr);
         Semi(Span::call_site()).to_tokens(tokens);
 
-        let should_debug = !props.skip_debug.contains(expr);
+        let skip = props.debug_skip.contains(expr);
+
+        let debug_method = props
+            .debug_with
+            .iter()
+            .find(|v| &v.arg == *expr)
+            .map(|d| quote!(Some(#d)))
+            .unwrap_or_else(|| quote!(v.try_debug_fmt()));
+
+        let debug_non_copyable = props.debug_non_copyable;
 
         tokens.extend(quote! {
             let #arg_type = type_name_of_val(&#arg);
-            let #arg_bin = __VarWrapper(#arg);
-            let #arg_lazy_exec = #arg_bin.try_lazy(#should_debug && (#arg_bin.impls_copy() || __display_owned), |v| v.try_debug_fmt());
-            let #arg = #arg_bin.unload();
+            let #arg_wrapper = __VarWrapper(#arg);
+            let #arg_lazy_exec = #arg_wrapper.try_lazy(!#skip && (#debug_non_copyable || #arg_wrapper.impls_copy()), |v| #debug_method);
+            let #arg = #arg_wrapper.into_inner();
         });
     }
 
