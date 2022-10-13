@@ -219,6 +219,7 @@ pub enum DebugNonCopyable {
     Full,
     Disabled,
     None,
+    // CloneLazy,
 }
 
 impl Default for DebugNonCopyable {

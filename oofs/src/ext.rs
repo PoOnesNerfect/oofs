@@ -26,6 +26,9 @@ pub trait OofExt: Sized {
     type Return;
     type Error: 'static + Send + Sync + Error;
 
+    /// Build the error `Oof` with the given context, instead of using the generated context by attribute.
+    fn _context<D: ToString>(self, context: D) -> Result<Self::Return, OofBuilder<Self::Error>>;
+
     /// Tag the given type that can be searched with `.tagged_nested::<T>()` in the higher level call.
     fn _tag<Tag: 'static>(self) -> Result<Self::Return, OofBuilder<Self::Error>>;
 
@@ -129,6 +132,14 @@ where
     type Error = E;
 
     #[cfg_attr(feature = "location", track_caller)]
+    fn _context<D: ToString>(self, context: D) -> Result<Self::Return, OofBuilder<Self::Error>> {
+        match self {
+            Ok(t) => Ok(t),
+            Err(e) => Err(OofBuilder::new().with_custom(context).with_source(e)),
+        }
+    }
+
+    #[cfg_attr(feature = "location", track_caller)]
     fn _tag<Tag: 'static>(self) -> Result<Self::Return, OofBuilder<Self::Error>> {
         match self {
             Ok(t) => Ok(t),
@@ -184,6 +195,14 @@ where
 impl<T> OofExt for Option<T> {
     type Return = T;
     type Error = Infallible;
+
+    #[cfg_attr(feature = "location", track_caller)]
+    fn _context<D: ToString>(self, context: D) -> Result<Self::Return, OofBuilder<Self::Error>> {
+        match self {
+            Some(t) => Ok(t),
+            None => Err(OofBuilder::new().with_custom(context)),
+        }
+    }
 
     #[cfg_attr(feature = "location", track_caller)]
     fn _tag<Tag: 'static>(self) -> Result<T, OofBuilder> {

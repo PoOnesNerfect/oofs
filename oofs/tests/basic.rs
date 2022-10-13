@@ -48,6 +48,14 @@ struct MyStruct {
 // Context will be injected to all methods that return a `Result`.
 #[oofs]
 impl MyStruct {
+    fn new() -> Result<Self, Oof> {
+        let field = "hi".to_owned();
+
+        Ok(MyStruct {
+            field
+        })
+    }
+
     fn failing_method(&self, x: usize) -> Result<u64, Oof> {
         let ret = self
             .field

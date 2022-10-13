@@ -64,8 +64,8 @@ where
         self
     }
 
-    pub(crate) fn with_custom(mut self, custom: String) -> Self {
-        self.context = Context::Custom(custom);
+    pub(crate) fn with_custom<D: ToString>(mut self, custom: D) -> Self {
+        self.context = Context::Custom(custom.to_string());
         self
     }
 
@@ -128,6 +128,10 @@ where
     type Return = T;
     type Error = E;
 
+    fn _context<D: ToString>(self, context: D) -> Result<T, OofBuilder<E>> {
+        self.map_err(|b| b.with_custom(context))
+    }
+
     fn _tag<Tag: 'static>(self) -> Result<T, OofBuilder<E>> {
         self.map_err(|b| b.with_tag::<Tag>())
     }
@@ -167,7 +171,13 @@ where
     fn build_oof<F: FnOnce() -> OofGeneratedContext>(this: Self, f: F) -> Result<T, Oof> {
         match this {
             Ok(t) => Ok(t),
-            Err(b) => Err(b.with_generated(f()).build()),
+            Err(mut b) => {
+                if b.context.is_none() {
+                    b = b.with_generated(f());
+                }
+
+                Err(b.build())
+            }
         }
     }
 }
@@ -180,7 +190,15 @@ where
     fn build_oof<F: FnOnce() -> OofGeneratedContext>(this: Self, f: F) -> Result<T, Oof> {
         match this {
             Ok(t) => Ok(t),
-            Err(e) => Err(OofBuilder::new().with_source(e).with_generated(f()).build()),
+            Err(e) => {
+                let mut b = OofBuilder::new().with_source(e);
+
+                if b.context.is_none() {
+                    b = b.with_generated(f());
+                }
+
+                Err(b.build())
+            }
         }
     }
 }
@@ -190,7 +208,15 @@ impl<T> OofGenerator<T> for Option<T> {
     fn build_oof<F: FnOnce() -> OofGeneratedContext>(this: Self, f: F) -> Result<T, Oof> {
         match this {
             Some(t) => Ok(t),
-            None => Err(OofBuilder::new().with_generated(f()).build()),
+            None => {
+                let mut b = OofBuilder::new();
+
+                if b.context.is_none() {
+                    b = b.with_generated(f());
+                }
+
+                Err(b.build())
+            }
         }
     }
 }

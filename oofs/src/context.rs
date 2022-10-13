@@ -29,6 +29,20 @@ impl Display for Context {
     }
 }
 
+impl Context {
+    pub(crate) fn is_none(&self) -> bool {
+        matches!(self, Context::None)
+    }
+
+    pub(crate) fn is_custom(&self) -> bool {
+        matches!(self, Context::Custom(_))
+    }
+
+    pub(crate) fn is_generated(&self) -> bool {
+        matches!(self, Context::Generated(_))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct OofGeneratedContext {
     receiver: OofReceiver,

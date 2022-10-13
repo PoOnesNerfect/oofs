@@ -678,8 +678,10 @@ impl<'a> Writer<'a> {
                     attr.to_tokens(braced);
                 }
                 member.to_tokens(braced);
-                colon_token.to_tokens(braced);
-                props.write(braced).expr(expr);
+                if let Some(colon_token) = colon_token {
+                    colon_token.to_tokens(braced);
+                    props.write(braced).expr(expr);
+                }
 
                 pair.punct().to_tokens(braced);
             }
