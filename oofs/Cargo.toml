@@ -1,6 +1,6 @@
 [package]
 name = "oofs"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 authors = ["PoOnesNerfect <jack.y.l.dev@gmail.com>"]
 description = "Error handling library that generates and injects context for you."
@@ -21,6 +21,6 @@ debug_non_copyable_disabled = []
 debug_non_copyable_full = []
 
 [dependencies]
-oofs_derive = { version = "=0.2.2", path = "../oofs_derive" }
+oofs_derive = { version = "=0.2.3", path = "../oofs_derive" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
